@@ -1,5 +1,12 @@
 <view class="container">
-  <text class="title">icar 智能教室导航</text>
+  <view class="header">
+    <text class="title">iCar 智能教室导航</text>
+    <view class="connection {{connected ? 'online' : 'offline'}}"
+          bindtap="reconnect">
+      <view class="connection-dot"></view>
+      <text>{{connected ? '小车已连接' : '未连接，点击重试'}}</text>
+    </view>
+  </view>
 
   <view class="section-title">请选择教室</view>
   <view class="room-list">
@@ -10,9 +17,16 @@
     </view>
   </view>
 
+  <view class="section-title">或输入其他教室号</view>
+  <input class="room-input"
+         value="{{customRoom}}"
+         maxlength="32"
+         placeholder="例如：201"
+         bindinput="inputRoom" />
+
   <button class="btn-primary" bindtap="startNavigate">开始导航</button>
 
   <view class="divider">或</view>
 
-  <button class="btn-face" bindtap="startFaceRecognition">人脸识别导航</button>
+  <button class="btn-face" bindtap="startFaceRecognition">人脸识别导航（第二版）</button>
 </view>
