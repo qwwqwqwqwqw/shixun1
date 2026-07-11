@@ -47,6 +47,9 @@ dev_ws/build/
 dev_ws/install/
 dev_ws/log/
 
+# 进程记录文件（不提交）
+process.md
+
 # 系统文件
 .DS_Store
 Thumbs.db
