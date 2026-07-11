@@ -1,0 +1,67 @@
+# docker-compose.yml — 双容器编排（扩展功能）
+# 容器1: ros2-nav — ROS2 + Nav2 导航核心
+# 容器2: vision  — 视觉识别（YOLO + 人脸识别）
+# 跨容器通过 ROS2 DDS Discovery 通信
+
+version: '3.8'
+
+services:
+  ros2-nav:
+    image: osrf/ros:humble-nav2
+    container_name: icar-nav
+    network_mode: host          # 跨容器 DDS 通信需要 host 网络
+    volumes:
+      - ./dev_ws:/workspace/dev_ws
+      - ./maps:/workspace/maps
+    environment:
+      - ROS_DOMAIN_ID=42        # DDS 域 ID（跨主机需保持一致）
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    command: >
+      bash -c "
+        cd /workspace/dev_ws &&
+        colcon build --symlink-install &&
+        source install/setup.bash &&
+        ros2 launch guide_pkg guide_launch.py
+      "
+    restart: unless-stopped
+
+  vision:
+    build:
+      context: .
+      dockerfile: Dockerfile.vision
+    container_name: icar-vision
+    network_mode: host
+    volumes:
+      - ./vision:/workspace/vision
+      - ./dev_ws/src/guide_pkg/config:/workspace/config
+    environment:
+      - ROS_DOMAIN_ID=42
+      - RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+    command: >
+      bash -c "
+        cd /workspace/vision &&
+        python3 doorplate/doorplate_detector.py &
+        python3 face/face_recognizer.py
+      "
+    depends_on:
+      - ros2-nav
+    restart: unless-stopped
+
+  aiserver:
+    image: osrf/ros:humble-desktop
+    container_name: icar-aiserver
+    network_mode: host
+    volumes:
+      - ./dev_ws:/workspace/dev_ws
+      - ./app:/workspace/app
+    environment:
+      - ROS_DOMAIN_ID=42
+    command: >
+      bash -c "
+        cd /workspace/dev_ws &&
+        source install/setup.bash &&
+        ros2 run aiserver_pkg aiserver_node
+      "
+    depends_on:
+      - ros2-nav
+    restart: unless-stopped

@@ -1,0 +1,8 @@
+# 自定义导航服务接口 — B组长定义
+# 请求
+string room_number    # 目标教室号（如 "101"）
+string source         # 触发来源: "manual"（小程序输入） / "face"（人脸识别）
+---
+# 响应
+bool success          # True 表示导航请求已被接收并开始执行
+string message        # 描述信息

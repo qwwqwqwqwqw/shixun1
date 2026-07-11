@@ -1,0 +1,12 @@
+.status-card {
+  background: #fff; border-radius: 16rpx; padding: 30rpx; margin: 20rpx 0;
+}
+.info-row {
+  display: flex; justify-content: space-between; padding: 20rpx 0;
+  border-bottom: 1rpx solid #eee;
+}
+.info-row:last-child { border-bottom: none; }
+.label { color: #999; }
+.value { font-weight: bold; }
+.value.ok { color: #07c160; }
+.value.pending { color: #faad14; }

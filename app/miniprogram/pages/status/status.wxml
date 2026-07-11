@@ -1,0 +1,20 @@
+<view class="container">
+  <text class="title">导航状态</text>
+
+  <view class="status-card">
+    <view class="info-row">
+      <text class="label">目标教室</text>
+      <text class="value">{{targetRoom || '未设置'}}</text>
+    </view>
+    <view class="info-row">
+      <text class="label">当前状态</text>
+      <text class="value">{{status}}</text>
+    </view>
+    <view class="info-row">
+      <text class="label">到达确认</text>
+      <text class="value {{arrivalConfirmed ? 'ok' : 'pending'}}">
+        {{arrivalConfirmed ? '✓ 已确认' : '待确认'}}
+      </text>
+    </view>
+  </view>
+</view>

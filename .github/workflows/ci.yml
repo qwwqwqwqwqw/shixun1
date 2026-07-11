@@ -1,0 +1,47 @@
+name: CI — 自动语法检查
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  python-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install lint tools
+        run: pip install flake8 pyyaml
+
+      - name: Flake8 语法检查
+        run: |
+          # 检查所有 Python 文件（排除模板和第三方代码）
+          find . -name "*.py" \
+            -not -path "./vision/doorplate/yolov5/*" \
+            -not -path "./.git/*" \
+            -not -path "*/__pycache__/*" \
+            | xargs flake8 --max-line-length=120 --extend-ignore=E203,W503 || true
+
+      - name: YAML 格式检查
+        run: |
+          find . -name "*.yaml" -o -name "*.yml" \
+            | xargs python3 -c "import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" || true
+
+      - name: 检查 ROS2 包完整性
+        run: |
+          echo "检查 package.xml..."
+          find . -name "package.xml" -exec xmllint --noout {} \; 2>/dev/null || true
+          echo "检查 __init__.py..."
+          find ./dev_ws/src -type d -name "*_pkg" | while read pkg; do
+            inner=$(basename "$pkg")
+            if [ ! -f "$pkg/$inner/__init__.py" ]; then
+              echo "缺少: $pkg/$inner/__init__.py"
+            fi
+          done

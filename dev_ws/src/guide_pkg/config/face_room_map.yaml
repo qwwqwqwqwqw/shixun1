@@ -1,0 +1,7 @@
+# 人脸名 → 房间号映射表
+# 负责人: C组员（维护）
+# 注册新用户时同时更新此文件，并在 vision/face/known_faces/ 放入对应照片
+face_room_map:
+  zhang_san: "101"
+  li_si: "102"
+  wang_wu: "103"

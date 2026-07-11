@@ -1,0 +1,18 @@
+<view class="container">
+  <text class="title">icar 智能教室导航</text>
+
+  <view class="section-title">请选择教室</view>
+  <view class="room-list">
+    <view wx:for="{{rooms}}" wx:key="*this"
+          class="room-item {{item == selectedRoom ? 'active' : ''}}"
+          bindtap="selectRoom" data-room="{{item}}">
+      {{item}}
+    </view>
+  </view>
+
+  <button class="btn-primary" bindtap="startNavigate">开始导航</button>
+
+  <view class="divider">或</view>
+
+  <button class="btn-face" bindtap="startFaceRecognition">人脸识别导航</button>
+</view>

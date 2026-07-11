@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+build/
+install/
+log/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 地图大文件（保留 maps/ 下的示例）
+*.pgm
+# 但保留 maps/ 目录下的（取消下行注释即可保留）
+#!maps/*.pgm
+
+# 人脸特征缓存
+*.pkl
+
+# 数据集（太大不提交）
+vision/doorplate/dataset/
+vision/face/known_faces/*.jpg
+vision/face/known_faces/*.png
+# 保留 README
+!vision/face/known_faces/README.md
+!vision/doorplate/dataset/README.md
+
+# YOLO 权重（太大）
+vision/doorplate/best.pt
+# 保留占位说明
+!vision/doorplate/yolov5/
+
+# 日志
+*.log
+records/*.log
+
+# 环境变量
+.env
+.env.*
+
+# ROS2 构建产物
+dev_ws/build/
+dev_ws/install/
+dev_ws/log/
+
+# 系统文件
+.DS_Store
+Thumbs.db

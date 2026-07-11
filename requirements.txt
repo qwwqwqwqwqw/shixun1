@@ -1,0 +1,26 @@
+# Python 依赖总表 — 所有模块共用
+# 安装: pip3 install -r requirements.txt
+
+# ROS2 Python (通常随 ROS2 安装，此处列出供参考)
+# rclpy
+
+# 导航
+pyyaml>=6.0
+
+# 视觉识别 — 门牌 (YOLOv5 + OCR)
+torch>=1.12.0
+torchvision>=0.13.0
+ultralytics>=8.0.0
+opencv-python>=4.5.0
+pillow>=9.0.0
+numpy>=1.21.0
+
+# 视觉识别 — 人脸
+face_recognition>=1.3.0
+# face_recognition 依赖 dlib，安装前可能需要: sudo apt install cmake
+
+# 接口服务
+websockets>=10.0
+
+# 工具
+setuptools>=60.0
