@@ -2,7 +2,8 @@
 
 订阅话题：
   - /command_room (std_msgs/String) : 小程序手动输入教室号 → 原有模式
-  - /face_room    (std_msgs/String) : 人脸识别自动映射的房间号 → 酒店入住新模式
+  - /face_room    (std_msgs/String) : 人脸识别映射房间号 / 人脸模式控制 → 新模式
+  - /cmd_vel      (geometry_msgs/Twist) : 小程序摇杆控制（由 aiserver_node 直发底盘，此处仅记录）
 
 发布话题：
   - /navigation_status (std_msgs/String) : 导航状态实时反馈
@@ -29,13 +30,27 @@ class GuideNode(Node):
 
     def on_command_room(self, msg):
         """手动模式：小程序输入教室号"""
-        self.get_logger().info(f'[手动] 收到教室号: {msg.data}')
-        self._navigate_to(msg.data, source='manual')
+        room = msg.data.strip()
+        if not room:
+            return
+        self.get_logger().info(f'[手动] 收到教室号: {room}')
+        self._navigate_to(room, source='manual')
 
     def on_face_room(self, msg):
-        """自动模式：人脸识别映射房间号"""
-        self.get_logger().info(f'[人脸] 收到房间号: {msg.data}')
-        self._navigate_to(msg.data, source='face')
+        """自动模式：人脸识别结果（房间号）或人脸模式控制指令"""
+        data = msg.data.strip()
+        if not data:
+            return
+
+        # "start" / "stop" 为人脸模式控制指令，不触发导航
+        if data.lower() in ('start', 'stop'):
+            self.get_logger().info(f'[人脸] 模式控制: {data}')
+            self.publish_status(f'人脸识别模式: {data}')
+            return
+
+        # 其他内容视为房间号，触发导航
+        self.get_logger().info(f'[人脸] 房间号: {data}')
+        self._navigate_to(data, source='face')
 
     def _navigate_to(self, room_number, source):
         """统一导航入口 — B组长实现 Nav2 调用。"""

@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'guide_node = guide_pkg.guide_node:main',
             'arrival_fusion = guide_pkg.arrival_fusion:main',
+            'joystick_ctrl = guide_pkg.joystick_ctrl:main',
         ],
     },
 )
