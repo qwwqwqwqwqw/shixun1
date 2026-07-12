@@ -209,11 +209,11 @@ App({
     this._notify();
   },
 
-  sendJoystick(vx, wz) {
+  sendJoystick(vx = 0, vy = 0, wz = 0) {
     return this.sendMessage({
       type: 'joystick',
       vx,
-      vy: 0,
+      vy,
       wz,
     }, false);
   },
