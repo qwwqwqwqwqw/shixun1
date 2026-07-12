@@ -45,8 +45,8 @@ class AiServerNode(Node):
             Bool, '/arrival_confirmed', self.on_arrival, 10)
 
         # ── TCP 客户端管理 ──
-        self.clients = []
-        self.clients_lock = threading.Lock()
+        self._tcp_clients = []  # type: list[socket.socket]
+        self._tcp_lock = threading.Lock()
 
         # ── 启动 TCP 服务 ──
         self._start_tcp_server()
@@ -66,15 +66,15 @@ class AiServerNode(Node):
 
     def _broadcast(self, data):
         payload = (json.dumps(data, ensure_ascii=False) + '\n').encode('utf-8')
-        with self.clients_lock:
+        with self._tcp_lock:
             dead = []
-            for sock in self.clients:
+            for sock in self._tcp_clients:
                 try:
                     sock.sendall(payload)
                 except (BrokenPipeError, OSError):
                     dead.append(sock)
             for s in dead:
-                self.clients.remove(s)
+                self._tcp_clients.remove(s)
 
     # ──────────── TCP 服务器 ────────────
 
@@ -91,8 +91,8 @@ class AiServerNode(Node):
             try:
                 conn, addr = self.server_sock.accept()
                 self.get_logger().info(f'[连接] 小程序 {addr[0]}:{addr[1]}')
-                with self.clients_lock:
-                    self.clients.append(conn)
+                with self._tcp_lock:
+                    self._tcp_clients.append(conn)
                 threading.Thread(
                     target=self._client_handler,
                     args=(conn, addr), daemon=True).start()
@@ -116,9 +116,9 @@ class AiServerNode(Node):
             pass
         finally:
             self.get_logger().info(f'[断开] {addr[0]}:{addr[1]}')
-            with self.clients_lock:
-                if conn in self.clients:
-                    self.clients.remove(conn)
+            with self._tcp_lock:
+                if conn in self._tcp_clients:
+                    self._tcp_clients.remove(conn)
             try:
                 conn.close()
             except OSError:
@@ -173,13 +173,13 @@ class AiServerNode(Node):
     # ──────────── 资源释放 ────────────
 
     def destroy_node(self):
-        with self.clients_lock:
-            for s in self.clients:
+        with self._tcp_lock:
+            for s in self._tcp_clients:
                 try:
                     s.close()
                 except OSError:
                     pass
-            self.clients.clear()
+            self._tcp_clients.clear()
         try:
             self.server_sock.close()
         except OSError:
