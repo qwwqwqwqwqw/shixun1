@@ -59,13 +59,13 @@ jobs:
       - name: 准备 ROS2 环境并编译
         run: |
           apt-get update && apt-get install -y python3-colcon-common-extensions
-          . /opt/ros/humble/setup.bash
+          . /opt/ros/humble/setup.sh
           cd dev_ws
           colcon build --packages-select guide_pkg aiserver_pkg
       - name: 验证编译产物
         run: |
-          . /opt/ros/humble/setup.bash
-          . dev_ws/install/setup.bash
+          . /opt/ros/humble/setup.sh
+          . dev_ws/install/setup.sh
           ros2 pkg list | grep -E "guide_pkg|aiserver_pkg" && echo "BUILD OK"
 
   # ---------- 第 3 步：自动部署到小车（需先在 GitHub 设置 Secrets） ----------
