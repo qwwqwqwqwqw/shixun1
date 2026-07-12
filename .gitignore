@@ -7,9 +7,11 @@ build/
 install/
 log/
 
-# IDE
+# IDE 配置
 .vscode/
+.codebuddy/
 .idea/
+pyrightconfig.json
 *.swp
 *.swo
 

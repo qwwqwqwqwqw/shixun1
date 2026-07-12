@@ -1,6 +1,11 @@
 <view class="container">
   <text class="title">导航状态</text>
 
+  <view class="connection-bar {{connected ? 'online' : 'offline'}}"
+        bindtap="reconnect">
+    {{connected ? '● 已连接小车' : '● 连接已断开，点击重连'}}
+  </view>
+
   <view class="status-card">
     <view class="info-row">
       <text class="label">目标教室</text>
@@ -8,7 +13,11 @@
     </view>
     <view class="info-row">
       <text class="label">当前状态</text>
-      <text class="value">{{status}}</text>
+      <text class="value {{statusClass}}">{{status}}</text>
+    </view>
+    <view class="info-row">
+      <text class="label">小车位置</text>
+      <text class="value position">{{positionText}}</text>
     </view>
     <view class="info-row">
       <text class="label">到达确认</text>
@@ -17,4 +26,6 @@
       </text>
     </view>
   </view>
+
+  <button class="btn-cancel" bindtap="cancelNavigation">取消导航</button>
 </view>

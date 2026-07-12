@@ -9,7 +9,7 @@
 import sys
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 
 class TestClient(Node):
@@ -20,7 +20,7 @@ class TestClient(Node):
         self.sub_status = self.create_subscription(
             String, '/navigation_status', self.on_status, 10)
         self.sub_arrival = self.create_subscription(
-            String, '/arrival_confirmed', self.on_arrival, 10)
+            Bool, '/arrival_confirmed', self.on_arrival, 10)
         self.get_logger().info('测试客户端已启动')
 
     def on_status(self, msg):

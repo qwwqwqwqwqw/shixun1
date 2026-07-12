@@ -1,48 +1,190 @@
-"""TCP/WebSocket 服务节点 — D组员负责实现。
+"""TCP Socket 服务节点 — B组长与D组员协作。
+
+通信协议：TCP（非WebSocket），小程序通过 wx.createTCPSocket() 连接。
 
 功能：
-  1. 启动 TCP/WebSocket 服务，接收小程序/Web 前端指令
-  2. 前端发来的教室号 → 发布到 /command_room 话题
-  3. 订阅 /navigation_status → 实时回传前端
-  4. 提供人脸注册接口（扩展）
+  1. TCP Server（端口 9090），接收小程序 JSONL 指令
+  2. 指令类型：
+     - 导航:  {"type":"navigate", "room":"101"}
+     - 摇杆:  {"type":"joystick", "vx":0.3, "vy":0, "wz":0}
+     - 取消:  {"type":"cancel"}
+     - 人脸:  {"type":"face_mode", "action":"start"}
+     - 心跳:  {"type":"ping"}
+  3. 订阅 ROS2 状态话题，实时回传小程序
 """
+import json
+import socket
+import threading
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import String, Bool
+from geometry_msgs.msg import Twist
+
+
+TCP_PORT = 9090
 
 
 class AiServerNode(Node):
     def __init__(self):
         super().__init__('aiserver_node')
-        # 发布：将前端指令转发为 ROS2 话题
+
+        # ── 发布器 ──
         self.pub_command_room = self.create_publisher(
             String, '/command_room', 10)
         self.pub_face_room = self.create_publisher(
             String, '/face_room', 10)
-        # 订阅：导航状态回传前端
+        self.pub_app_joystick = self.create_publisher(
+            Twist, '/app_joystick', 10)
+        self.pub_cancel = self.create_publisher(
+            Bool, '/navigation_cancel', 10)
+
+        # ── 订阅器 ──
         self.sub_status = self.create_subscription(
             String, '/navigation_status', self.on_nav_status, 10)
-        self.get_logger().info('aiserver_node 已启动 — 等待前端连接')
-        # TODO: D组员实现 TCP/WebSocket 服务端
+        self.sub_arrival = self.create_subscription(
+            Bool, '/arrival_confirmed', self.on_arrival, 10)
+
+        # ── TCP 客户端管理 ──
+        self._tcp_clients = []  # type: list[socket.socket]
+        self._tcp_lock = threading.Lock()
+
+        # ── 启动 TCP 服务 ──
+        self._start_tcp_server()
+        self.get_logger().info(f'TCP 服务已启动 — 端口 {TCP_PORT}')
+
+    # ──────────── ROS2 状态回调 ────────────
 
     def on_nav_status(self, msg):
-        """导航状态回调 → 通过 WebSocket 回传前端"""
-        self.get_logger().info(f'导航状态: {msg.data}')
-        # TODO: ws.send(msg.data)
+        self.get_logger().info(f'[导航状态] {msg.data}')
+        self._broadcast({'type': 'nav_status', 'message': msg.data})
 
-    def handle_command(self, room_number):
-        """处理前端教室号指令 → 发布到 /command_room"""
-        msg = String()
-        msg.data = room_number
-        self.pub_command_room.publish(msg)
-        self.get_logger().info(f'已转发教室号: {room_number}')
+    def on_arrival(self, msg):
+        self.get_logger().info(f'[到达确认] {msg.data}')
+        self._broadcast({'type': 'arrival', 'message': msg.data})
 
-    def handle_face_result(self, room_number):
-        """处理人脸识别结果 → 发布到 /face_room"""
-        msg = String()
-        msg.data = room_number
-        self.pub_face_room.publish(msg)
-        self.get_logger().info(f'已转发人脸房间号: {room_number}')
+    # ──────────── TCP 广播 ────────────
+
+    def _broadcast(self, data):
+        payload = (json.dumps(data, ensure_ascii=False) + '\n').encode('utf-8')
+        with self._tcp_lock:
+            dead = []
+            for sock in self._tcp_clients:
+                try:
+                    sock.sendall(payload)
+                except (BrokenPipeError, OSError):
+                    dead.append(sock)
+            for s in dead:
+                self._tcp_clients.remove(s)
+
+    # ──────────── TCP 服务器 ────────────
+
+    def _start_tcp_server(self):
+        self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.server_sock.bind(('0.0.0.0', TCP_PORT))
+        self.server_sock.listen(5)
+        self.server_sock.settimeout(1.0)
+        threading.Thread(target=self._accept_loop, daemon=True).start()
+
+    def _accept_loop(self):
+        while rclpy.ok():
+            try:
+                conn, addr = self.server_sock.accept()
+                self.get_logger().info(f'[连接] 小程序 {addr[0]}:{addr[1]}')
+                with self._tcp_lock:
+                    self._tcp_clients.append(conn)
+                threading.Thread(
+                    target=self._client_handler,
+                    args=(conn, addr), daemon=True).start()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+
+    def _client_handler(self, conn, addr):
+        buf = b''
+        try:
+            while rclpy.ok():
+                data = conn.recv(4096)
+                if not data:
+                    break
+                buf += data
+                while b'\n' in buf:
+                    line, buf = buf.split(b'\n', 1)
+                    self._process_command(line.decode('utf-8'))
+        except (ConnectionResetError, OSError):
+            pass
+        finally:
+            self.get_logger().info(f'[断开] {addr[0]}:{addr[1]}')
+            with self._tcp_lock:
+                if conn in self._tcp_clients:
+                    self._tcp_clients.remove(conn)
+            try:
+                conn.close()
+            except OSError:
+                pass
+
+    # ──────────── 指令处理 ────────────
+
+    def _process_command(self, raw):
+        try:
+            cmd = json.loads(raw)
+        except json.JSONDecodeError:
+            self.get_logger().warn(f'[协议错误] {raw[:50]}')
+            return
+
+        msg_type = cmd.get('type', '')
+
+        if msg_type == 'navigate':
+            room = cmd.get('room', '')
+            if room:
+                msg = String(data=str(room))
+                self.pub_command_room.publish(msg)
+                self.get_logger().info(f'[导航] 教室 {room}')
+                self._broadcast({
+                    'type': 'ack', 'command': 'navigate',
+                    'room': room, 'status': 'accepted'
+                })
+
+        elif msg_type == 'joystick':
+            twist = Twist()
+            twist.linear.x = float(cmd.get('vx', 0))
+            twist.linear.y = float(cmd.get('vy', 0))
+            twist.angular.z = float(cmd.get('wz', 0))
+            self.pub_app_joystick.publish(twist)
+
+        elif msg_type == 'cancel':
+            self.pub_cancel.publish(Bool(data=True))
+            self.get_logger().info('[导航] 取消')
+            self._broadcast({'type': 'ack', 'command': 'cancel', 'status': 'accepted'})
+
+        elif msg_type == 'face_mode':
+            action = cmd.get('action', 'start')
+            self.get_logger().info(f'[人脸] {action}')
+            msg = String(data=action)
+            self.pub_face_room.publish(msg)
+
+        elif msg_type == 'ping':
+            self._broadcast({'type': 'pong', 'message': 'ok'})
+
+        else:
+            self.get_logger().warn(f'[未知指令] {msg_type}')
+
+    # ──────────── 资源释放 ────────────
+
+    def destroy_node(self):
+        with self._tcp_lock:
+            for s in self._tcp_clients:
+                try:
+                    s.close()
+                except OSError:
+                    pass
+            self._tcp_clients.clear()
+        try:
+            self.server_sock.close()
+        except OSError:
+            pass
+        super().destroy_node()
 
 
 def main(args=None):
