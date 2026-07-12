@@ -1,69 +1,128 @@
-// app.js — WebSocket 连接和全局导航状态
+// app.js — TCP Socket 连接和全局导航状态
 App({
   globalData: {
-    // 部署前改成小车实际 IP；开发者工具中需关闭“校验合法域名”。
-    serverUrl: 'ws://192.168.1.100:9090',
+    // 部署前改成小车实际 IPv4 地址，不能包含 ws:// 或 http://。
+    serverHost: '10.112.253.188',
+    serverPort: 9090,
     currentRoom: '',
     navStatus: '等待导航指令',
     robotPose: null,
     arrivalConfirmed: false,
     connected: false,
-    ws: null,
+    tcp: null,
   },
 
   _listeners: [],
   _pendingMessages: [],
   _reconnectTimer: null,
-  _manualClose: false,
+  _connecting: false,
+  _receiveBuffer: '',
+  _textDecoder: null,
 
   onLaunch() {
-    this.connectWebSocket();
+    if (typeof TextDecoder !== 'undefined') {
+      this._textDecoder = new TextDecoder('utf-8');
+    }
+    this.connectTcp();
   },
 
   onHide() {
     // 小程序进入后台时保持连接，便于继续接收导航状态。
   },
 
-  connectWebSocket() {
-    if (this.globalData.ws) {
+  connectTcp() {
+    if (this.globalData.tcp || this._connecting) {
+      return;
+    }
+    if (typeof wx.createTCPSocket !== 'function') {
+      wx.showToast({ title: '当前基础库不支持 TCP Socket', icon: 'none' });
       return;
     }
 
-    this._manualClose = false;
-    const ws = wx.connectSocket({ url: this.globalData.serverUrl });
-    this.globalData.ws = ws;
+    this._connecting = true;
+    const tcp = wx.createTCPSocket({ type: 'ipv4' });
+    this.globalData.tcp = tcp;
 
-    ws.onOpen(() => {
+    tcp.onConnect(() => {
+      this._connecting = false;
       this.globalData.connected = true;
+      this._receiveBuffer = '';
+      if (this._reconnectTimer) {
+        clearTimeout(this._reconnectTimer);
+        this._reconnectTimer = null;
+      }
       this._notify();
       this._flushPendingMessages();
-      this.sendMessage({ type: 'status' });
+      this.sendMessage({ type: 'ping' });
     });
 
-    ws.onMessage((res) => {
-      let data;
+    tcp.onMessage((res) => {
+      this._receiveBuffer += this._decodeTcpData(res.message);
+      this._consumeTcpMessages();
+    });
+
+    tcp.onError((error) => {
+      console.warn('TCP Socket 连接错误', error);
+      this._handleTcpDisconnected(tcp);
       try {
-        data = JSON.parse(res.data);
-      } catch (error) {
-        console.warn('收到无法解析的服务端消息', res.data);
+        tcp.close();
+      } catch (closeError) {
+        console.warn('关闭 TCP Socket 失败', closeError);
+      }
+    });
+
+    tcp.onClose(() => {
+      this._handleTcpDisconnected(tcp);
+    });
+
+    tcp.connect({
+      address: this.globalData.serverHost,
+      port: this.globalData.serverPort,
+      timeout: 5,
+    });
+  },
+
+  _decodeTcpData(arrayBuffer) {
+    if (this._textDecoder) {
+      return this._textDecoder.decode(arrayBuffer, { stream: true });
+    }
+    const bytes = new Uint8Array(arrayBuffer);
+    let binary = '';
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+    try {
+      return decodeURIComponent(escape(binary));
+    } catch (error) {
+      return binary;
+    }
+  },
+
+  _consumeTcpMessages() {
+    const lines = this._receiveBuffer.split('\n');
+    this._receiveBuffer = lines.pop();
+    lines.forEach((line) => {
+      const text = line.trim();
+      if (!text) {
         return;
       }
-
-      this._handleServerMessage(data);
-    });
-
-    ws.onError((error) => {
-      console.warn('WebSocket 连接错误', error);
-    });
-
-    ws.onClose(() => {
-      this.globalData.ws = null;
-      this.globalData.connected = false;
-      this._notify();
-      if (!this._manualClose) {
-        this._scheduleReconnect();
+      try {
+        this._handleServerMessage(JSON.parse(text));
+      } catch (error) {
+        console.warn('收到无法解析的 TCP 消息', text);
       }
     });
+  },
+
+  _handleTcpDisconnected(tcp) {
+    if (this.globalData.tcp !== tcp) {
+      return;
+    }
+    this.globalData.tcp = null;
+    this.globalData.connected = false;
+    this._connecting = false;
+    this._notify();
+    this._scheduleReconnect();
   },
 
   _handleServerMessage(data) {
@@ -72,8 +131,8 @@ App({
       if (data.room) {
         this.globalData.currentRoom = data.room;
       }
-    } else if (data.type === 'arrival_confirmed') {
-      this.globalData.arrivalConfirmed = Boolean(data.confirmed);
+    } else if (data.type === 'arrival') {
+      this.globalData.arrivalConfirmed = Boolean(data.message);
     } else if (data.type === 'robot_pose') {
       this.globalData.robotPose = data.data || null;
     } else if (data.type === 'error') {
@@ -88,8 +147,8 @@ App({
     }
     this._reconnectTimer = setTimeout(() => {
       this._reconnectTimer = null;
-      this.connectWebSocket();
-    }, 3000);
+      this.connectTcp();
+    }, 20000);
   },
 
   reconnect() {
@@ -100,22 +159,28 @@ App({
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;
     }
-    this.connectWebSocket();
+    this.connectTcp();
   },
 
-  sendMessage(payload) {
-    if (!this.globalData.connected || !this.globalData.ws) {
-      this._pendingMessages.push(payload);
+  sendMessage(payload, queueIfOffline = true) {
+    if (!this.globalData.connected || !this.globalData.tcp) {
+      if (queueIfOffline) {
+        this._pendingMessages.push(payload);
+      }
       this.reconnect();
       return false;
     }
-    this.globalData.ws.send({
-      data: JSON.stringify(payload),
-      fail: () => {
+    try {
+      // TCP 没有消息边界，服务端约定每条 JSON 以换行符结束。
+      this.globalData.tcp.write(`${JSON.stringify(payload)}\n`);
+      return true;
+    } catch (error) {
+      if (queueIfOffline) {
         this._pendingMessages.unshift(payload);
-      },
-    });
-    return true;
+      }
+      console.warn('TCP 指令发送失败', error);
+      return false;
+    }
   },
 
   _flushPendingMessages() {
@@ -133,7 +198,7 @@ App({
       ? '指令已发送，等待小车响应'
       : '正在连接小车，指令将在连接后发送';
     this.globalData.arrivalConfirmed = false;
-    this.sendMessage({ type: 'command_room', data: normalizedRoom });
+    this.sendMessage({ type: 'navigate', room: normalizedRoom });
     this._notify();
     return true;
   },
@@ -142,6 +207,15 @@ App({
     this.globalData.navStatus = '正在取消导航';
     this.sendMessage({ type: 'cancel' });
     this._notify();
+  },
+
+  sendJoystick(vx, wz) {
+    return this.sendMessage({
+      type: 'joystick',
+      vx,
+      vy: 0,
+      wz,
+    }, false);
   },
 
   subscribe(listener) {

@@ -34,5 +34,41 @@
   padding: 0 24rpx; background: #fff;
   border: 2rpx solid #ddd; border-radius: 12rpx;
 }
+.manual-card {
+  margin-top: 32rpx; padding: 24rpx;
+  background: #fff; border-radius: 20rpx;
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, .05);
+}
+.manual-title { margin-top: 0; text-align: center; color: #333; }
+.manual-tip {
+  display: block; margin-bottom: 20rpx;
+  color: #999; font-size: 24rpx; text-align: center;
+}
+.control-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 132rpx);
+  grid-template-rows: repeat(3, 104rpx);
+  gap: 16rpx;
+  justify-content: center;
+}
+.control-btn {
+  display: flex; align-items: center; justify-content: center;
+  background: #eef7f2; color: #087f46;
+  border: 2rpx solid #b7e6cb; border-radius: 18rpx;
+  font-size: 28rpx; font-weight: bold;
+  user-select: none;
+}
+.control-btn.forward { grid-column: 2; grid-row: 1; }
+.control-btn.left { grid-column: 1; grid-row: 2; }
+.control-btn.stop {
+  grid-column: 2; grid-row: 2;
+  color: #fff; background: #e64340; border-color: #e64340;
+}
+.control-btn.right { grid-column: 3; grid-row: 2; }
+.control-btn.backward { grid-column: 2; grid-row: 3; }
+.control-btn.pressed {
+  color: #fff; background: #07c160; border-color: #07c160;
+  transform: scale(.96);
+}
 .divider { text-align: center; color: #ccc; margin: 30rpx 0; }
 .btn-face { background: #8b9ab7; color: #fff; border-radius: 12rpx; }

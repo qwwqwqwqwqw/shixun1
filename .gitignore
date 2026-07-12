@@ -11,6 +11,7 @@ log/
 .vscode/
 .codebuddy/
 .idea/
+project.private.config.json
 pyrightconfig.json
 *.swp
 *.swo

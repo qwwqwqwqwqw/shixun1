@@ -26,7 +26,6 @@ pip3 install --user \
   opencv-python \
   pillow \
   pyyaml \
-  websockets \
   numpy
 
 echo ""

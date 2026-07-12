@@ -5,7 +5,7 @@
 功能：
   1. TCP Server（端口 9090），接收小程序 JSONL 指令
   2. 指令类型：
-     - 导航:  {"type":"navigate", "room":"101"}
+     - 导航:  {"type":"navigate", "room":"501"}
      - 摇杆:  {"type":"joystick", "vx":0.3, "vy":0, "wz":0}
      - 取消:  {"type":"cancel"}
      - 人脸:  {"type":"face_mode", "action":"start"}
@@ -13,20 +13,22 @@
   3. 订阅 ROS2 状态话题，实时回传小程序
 """
 import json
+import math
 import socket
 import threading
-import rclpy
-from rclpy.node import Node
-from std_msgs.msg import String, Bool
-from geometry_msgs.msg import Twist
-
-
-TCP_PORT = 9090
+import rclpy  # pyright: ignore[reportMissingImports]
+from rclpy.node import Node  # pyright: ignore[reportMissingImports]
+from std_msgs.msg import String, Bool  # pyright: ignore[reportMissingImports]
+from geometry_msgs.msg import Twist  # pyright: ignore[reportMissingImports]
 
 
 class AiServerNode(Node):
     def __init__(self):
         super().__init__('aiserver_node')
+        self.declare_parameter('tcp_host', '0.0.0.0')
+        self.declare_parameter('tcp_port', 9090)
+        self.tcp_host = self.get_parameter('tcp_host').value
+        self.tcp_port = self.get_parameter('tcp_port').value
 
         # ── 发布器 ──
         self.pub_command_room = self.create_publisher(
@@ -50,7 +52,8 @@ class AiServerNode(Node):
 
         # ── 启动 TCP 服务 ──
         self._start_tcp_server()
-        self.get_logger().info(f'TCP 服务已启动 — 端口 {TCP_PORT}')
+        self.get_logger().info(
+            f'TCP 服务已启动 — {self.tcp_host}:{self.tcp_port}')
 
     # ──────────── ROS2 状态回调 ────────────
 
@@ -81,7 +84,7 @@ class AiServerNode(Node):
     def _start_tcp_server(self):
         self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.server_sock.bind(('0.0.0.0', TCP_PORT))
+        self.server_sock.bind((self.tcp_host, self.tcp_port))
         self.server_sock.listen(5)
         self.server_sock.settimeout(1.0)
         threading.Thread(target=self._accept_loop, daemon=True).start()
@@ -116,6 +119,8 @@ class AiServerNode(Node):
             pass
         finally:
             self.get_logger().info(f'[断开] {addr[0]}:{addr[1]}')
+            # TCP 断开时立即发布零速度，避免小车保持最后一条运动指令。
+            self.pub_app_joystick.publish(Twist())
             with self._tcp_lock:
                 if conn in self._tcp_clients:
                     self._tcp_clients.remove(conn)
@@ -148,9 +153,9 @@ class AiServerNode(Node):
 
         elif msg_type == 'joystick':
             twist = Twist()
-            twist.linear.x = float(cmd.get('vx', 0))
-            twist.linear.y = float(cmd.get('vy', 0))
-            twist.angular.z = float(cmd.get('wz', 0))
+            twist.linear.x = self._bounded_float(cmd.get('vx', 0), -0.5, 0.5)
+            twist.linear.y = self._bounded_float(cmd.get('vy', 0), -0.5, 0.5)
+            twist.angular.z = self._bounded_float(cmd.get('wz', 0), -1.5, 1.5)
             self.pub_app_joystick.publish(twist)
 
         elif msg_type == 'cancel':
@@ -170,9 +175,21 @@ class AiServerNode(Node):
         else:
             self.get_logger().warn(f'[未知指令] {msg_type}')
 
+    @staticmethod
+    def _bounded_float(value, lower, upper):
+        """将外部速度值转换为有限浮点数并限制在安全范围内。"""
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if not math.isfinite(number):
+            return 0.0
+        return max(lower, min(upper, number))
+
     # ──────────── 资源释放 ────────────
 
     def destroy_node(self):
+        self.pub_app_joystick.publish(Twist())
         with self._tcp_lock:
             for s in self._tcp_clients:
                 try:

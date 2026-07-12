@@ -14,17 +14,17 @@ echo ""
 read -p "按 Enter 开始演示（或 Ctrl+C 取消）..."
 
 echo ""
-echo "[步骤 1/3] 手动模式：导航到 101 教室"
-echo "  → 发布 /command_room: 101"
-ros2 topic pub --once /command_room std_msgs/String '{data: "101"}' 2>/dev/null || \
-  python3 "${LOCAL_DIR}/app/client_test.py" manual 101 &
+echo "[步骤 1/3] 手动模式：导航到 501 教室"
+echo "  → 发布 /command_room: 501"
+ros2 topic pub --once /command_room std_msgs/String '{data: "501"}' 2>/dev/null || \
+  python3 "${LOCAL_DIR}/app/client_test.py" manual 501 &
 sleep 5
 
 echo ""
 echo "[步骤 2/3] 人脸模式：识别人脸并导航"
-echo "  → 模拟发布 /face_room: 102"
-ros2 topic pub --once /face_room std_msgs/String '{data: "102"}' 2>/dev/null || \
-  python3 "${LOCAL_DIR}/app/client_test.py" face 102 &
+echo "  → 模拟发布 /face_room: 502"
+ros2 topic pub --once /face_room std_msgs/String '{data: "502"}' 2>/dev/null || \
+  python3 "${LOCAL_DIR}/app/client_test.py" face 502 &
 sleep 5
 
 echo ""

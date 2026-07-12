@@ -3,7 +3,7 @@
 <package format="3">
   <name>aiserver_pkg</name>
   <version>0.1.0</version>
-  <description>指令接口包 — TCP/WebSocket 桥接小程序与 ROS2</description>
+  <description>指令接口包 — TCP Socket 桥接微信小程序与 ROS2</description>
   <maintainer email="teamD@icar.local">D组-接口与前端</maintainer>
   <license>MIT</license>
 

@@ -13,7 +13,7 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.py')),
     ],
-    install_requires=['setuptools', 'websockets'],
+    install_requires=['setuptools'],
     zip_safe=True,
     maintainer='D组-接口与前端',
     maintainer_email='teamD@icar.local',
