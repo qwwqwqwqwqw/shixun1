@@ -17,12 +17,12 @@ from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
-import numpy as np
 
 try:
-    import easyocr
+    import easyocr as _easyocr
     HAS_EASYOCR = True
 except ImportError:
+    _easyocr = None  # type: ignore
     HAS_EASYOCR = False
 
 
@@ -30,15 +30,13 @@ class DoorplateDetector(Node):
     def __init__(self):
         super().__init__('doorplate_detector')
 
-        if not HAS_EASYOCR:
-            self.get_logger().error('easyocr 未安装，请执行: pip3 install easyocr')
-            raise RuntimeError('easyocr not installed')
+        assert HAS_EASYOCR, 'easyocr 未安装，请执行: pip3 install easyocr'
 
         # ── EasyOCR 引擎（首次运行会下载模型 ~30MB）──
         self.get_logger().info('正在初始化 EasyOCR（首次需下载模型，约 30MB）...')
-        self.reader = easyocr.Reader(
-            ['en'],                  # 英文+数字
-            gpu=False                # Jetson 用 CPU 更稳
+        self.reader = _easyocr.Reader(  # type: ignore
+            ['en'],
+            gpu=False
         )
         self.get_logger().info('EasyOCR 就绪')
 
@@ -74,7 +72,7 @@ class DoorplateDetector(Node):
         results = self.reader.readtext(gray)
 
         room_numbers = []
-        for (bbox, text, confidence) in results:
+        for (_bbox, text, confidence) in results:
             text = text.strip()
             # 筛选 2-4 位数字（门牌号常见格式：101, 102, A01, 301）
             if re.match(r'^[A-Za-z]?\d{2,4}$', text):

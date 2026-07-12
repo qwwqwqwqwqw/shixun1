@@ -21,9 +21,10 @@ import numpy as np
 import yaml
 
 try:
-    import face_recognition
+    import face_recognition as _face_recog
     HAS_FACE_RECOG = True
 except ImportError:
+    _face_recog = None  # type: ignore
     HAS_FACE_RECOG = False
 
 
@@ -31,9 +32,7 @@ class FaceRecognizer(Node):
     def __init__(self):
         super().__init__('face_recognizer')
 
-        if not HAS_FACE_RECOG:
-            self.get_logger().error('face_recognition 未安装，请执行: pip3 install face_recognition')
-            raise RuntimeError('face_recognition not installed')
+        assert HAS_FACE_RECOG, 'face_recognition 未安装，请执行: pip3 install face_recognition'
 
         # ── 加载已知人脸 ──
         self.known_encodings = []
@@ -74,8 +73,8 @@ class FaceRecognizer(Node):
             if fname.startswith('.') or fname == 'README.md':
                 continue
             path = os.path.join(base, fname)
-            img = face_recognition.load_image_file(path)
-            encodings = face_recognition.face_encodings(img)
+            img = _face_recog.load_image_file(path)
+            encodings = _face_recog.face_encodings(img)
             if encodings:
                 name = os.path.splitext(fname)[0]
                 self.known_encodings.append(encodings[0])
@@ -114,19 +113,19 @@ class FaceRecognizer(Node):
         rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
         # 检测人脸位置
-        locations = face_recognition.face_locations(rgb)
+        locations = _face_recog.face_locations(rgb)
         if not locations:
             return
 
         # 编码检测到的人脸
-        encodings = face_recognition.face_encodings(rgb, locations)
+        encodings = _face_recog.face_encodings(rgb, locations)
 
         for encoding in encodings:
             if not self.known_encodings:
                 self.get_logger().warn('检测到人脸，但无已知人脸可对比')
                 continue
 
-            distances = face_recognition.face_distance(
+            distances = _face_recog.face_distance(
                 self.known_encodings, encoding)
             best_idx = int(np.argmin(distances))
             min_dist = distances[best_idx]
