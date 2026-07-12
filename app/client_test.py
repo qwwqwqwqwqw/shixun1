@@ -2,8 +2,8 @@
 """命令行测试客户端 — 调试用，通过 ROS2 话题手动发送导航指令。
 
 用法：
-  python3 client_test.py manual 101   # 手动模式导航到 101 教室
-  python3 client_test.py face 102     # 人脸模式导航到 102 房间
+  python3 client_test.py manual 501   # 手动模式导航到 501 教室
+  python3 client_test.py face 502     # 人脸模式导航到 502 房间
   python3 client_test.py monitor      # 仅监听导航状态
 """
 import sys

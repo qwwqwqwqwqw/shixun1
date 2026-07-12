@@ -1,4 +1,4 @@
-// 状态页逻辑 — 由 WebSocket 消息事件实时驱动
+// 状态页逻辑 — 由 TCP Socket 消息事件实时驱动
 const app = getApp();
 
 Page({
