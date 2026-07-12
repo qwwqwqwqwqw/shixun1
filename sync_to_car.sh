@@ -33,17 +33,30 @@ ssh ${CAR_USER}@${CAR_IP} "mkdir -p ${CAR_WS}/src" 2>/dev/null || \
 { echo "  无法创建目录，请手动在小车上执行：sudo mkdir -p ${CAR_WS}/src"; exit 1; }
 echo "  [OK] ${CAR_WS}/src/ 已确认"
 
-# 第三步：rsync 同步 dev_ws/src/ → 小车 yahboomcar_ws/src/
+# 第三步：rsync 同步 dev_ws/src/ + vision/ + resource/ → 小车
 echo ""
-echo "[3/3] 同步 ROS2 包到工作空间 src/..."
+echo "[3/3] 同步代码到工作空间..."
+
+# 3a: ROS2 包
 rsync -avz \
-  --exclude='__pycache__/' \
-  --exclude='*.pyc' \
-  --exclude='build/' \
-  --exclude='install/' \
-  --exclude='log/' \
+  --exclude='__pycache__/' --exclude='*.pyc' \
+  --exclude='build/' --exclude='install/' --exclude='log/' \
   "${LOCAL_DIR}/dev_ws/src/" \
   "${CAR_USER}@${CAR_IP}:${CAR_WS}/src/"
+
+# 3b: 视觉模块
+if [ -d "${LOCAL_DIR}/vision" ]; then
+    rsync -avz --exclude='__pycache__/' --exclude='*.pyc' \
+      "${LOCAL_DIR}/vision/" \
+      "${CAR_USER}@${CAR_IP}:${CAR_WS}/src/vision/"
+fi
+
+# 3c: 资源文件（音频、地图等）
+if [ -d "${LOCAL_DIR}/resource" ]; then
+    rsync -avz \
+      "${LOCAL_DIR}/resource/" \
+      "${CAR_USER}@${CAR_IP}:${CAR_WS}/src/resource/"
+fi
 
 echo ""
 echo "=========================================="
