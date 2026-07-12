@@ -1,7 +1,8 @@
-"""门牌号识别节点 — 使用 EasyOCR 预训练模型（无需额外训练）。
+"""门牌号识别节点 — 占位方案：EasyOCR 预训练模型；正式方案：自训练 YOLO + OCR。
 
-流程：
-  摄像头 → EasyOCR 文字检测+识别 → 筛选房间号（3位数字） → /doorplate_result
+方案切换：修改 DETECTOR 变量即可
+  - 'easyocr': 当前占位方案，使用 EasyOCR 预训练模型，开箱即用
+  - 'yolo':   正式方案，使用自训练 YOLO 检测门牌区域 + 可选的 OCR 识别
 
 订阅话题：
   - /camera/color/image_raw (sensor_msgs/Image) : RGB 摄像头图像
@@ -18,41 +19,90 @@ from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
 
-try:
-    import easyocr as _easyocr
-    HAS_EASYOCR = True
-except ImportError:
-    _easyocr = None  # type: ignore
-    HAS_EASYOCR = False
+# ── 方案选择 ──
+DETECTOR = 'easyocr'  # 'easyocr' | 'yolo'
+
+# YOLO 配置（正式方案时使用）
+YOLO_MODEL = 'doorplate_best.pt'  # 自训练权重文件
+YOLO_CONFIDENCE = 0.5             # 检测置信度阈值
 
 
+# ──────────── 占位方案：EasyOCR ────────────
+class EasyOcrDetector:
+    """基于 EasyOCR 预训练模型的门牌识别（占位方案）。"""
+
+    def __init__(self):
+        try:
+            import easyocr as _ec
+        except ImportError:
+            raise RuntimeError('easyocr 未安装，请执行: pip3 install easyocr')
+        self.reader = _ec.Reader(['en'], gpu=False)  # type: ignore
+
+    def detect(self, gray):
+        """返回 (门牌文本, 置信度) 或 None"""
+        results = self.reader.readtext(gray)
+        candidates = []
+        for (_bbox, text, conf) in results:
+            text = text.strip()
+            if re.match(r'^[A-Za-z]?\d{2,4}$', text) and conf > 0.3:
+                candidates.append((text, conf))
+        if candidates:
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            return candidates[0]
+        return None
+
+
+# ──────────── 正式方案：YOLO + OCR ────────────
+class YoloDetector:
+    """基于自训练 YOLO 模型的门牌检测（正式方案）。
+
+    TODO: 训练好模型后将 DETECTOR 改为 'yolo'，模型文件放同级目录下。
+    """
+
+    def __init__(self):
+        try:
+            from ultralytics import YOLO
+        except ImportError:
+            raise RuntimeError('ultralytics 未安装，请执行: pip3 install ultralytics')
+        self.model = YOLO(YOLO_MODEL)
+
+    def detect(self, frame):
+        """返回 (门牌文本, 置信度) 或 None。支持可选 OCR 后处理。"""
+        results = self.model(frame, conf=YOLO_CONFIDENCE, verbose=False)
+        if results[0].boxes is not None and len(results[0].boxes) > 0:
+            best = max(results[0].boxes, key=lambda b: b.conf.item())
+            conf = best.conf.item()
+            # TODO: 可选 — 对检测到的门牌区域运行 OCR 提取具体数字
+            # 暂返回检测到的类别名（训练时把标签设为门牌号文本）
+            label = int(best.cls.item()) if hasattr(best, 'cls') else 0
+            return (str(label), conf)
+        return None
+
+
+# ──────────── ROS2 节点 ────────────
 class DoorplateDetector(Node):
     def __init__(self):
         super().__init__('doorplate_detector')
 
-        assert HAS_EASYOCR, 'easyocr 未安装，请执行: pip3 install easyocr'
+        self.get_logger().info(f'[方案] 使用检测器: {DETECTOR}')
 
-        # ── EasyOCR 引擎（首次运行会下载模型 ~30MB）──
-        self.get_logger().info('正在初始化 EasyOCR（首次需下载模型，约 30MB）...')
-        self.reader = _easyocr.Reader(  # type: ignore
-            ['en'],
-            gpu=False
-        )
-        self.get_logger().info('EasyOCR 就绪')
+        if DETECTOR == 'easyocr':
+            self.detector = EasyOcrDetector()
+        elif DETECTOR == 'yolo':
+            self.detector = YoloDetector()
+        else:
+            raise ValueError(f'未知检测方案: {DETECTOR}')
 
-        # ── 发布 /doorplate_result ──
-        self.pub_result = self.create_publisher(
-            String, '/doorplate_result', 10)
-
-        # ── 订阅摄像头 ──
+        self.pub_result = self.create_publisher(String, '/doorplate_result', 10)
         self.bridge = CvBridge()
         self.sub_image = self.create_subscription(
             Image, '/camera/color/image_raw', self.on_image, 10)
 
-        # ── 节流 ──
         self.process_interval = 1.0
         self.last_process_time = 0.0
         self.last_result = ''
+
+        self.get_logger().info('doorplate_detector 已启动')
 
     def on_image(self, msg):
         now = time.time()
@@ -65,31 +115,17 @@ class DoorplateDetector(Node):
         except Exception:
             return
 
-        # 转灰度加速 OCR
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-        # EasyOCR 检测+识别
-        results = self.reader.readtext(gray)
+        result = self.detector.detect(gray if DETECTOR == 'easyocr' else frame)
+        if result is None:
+            return
 
-        room_numbers = []
-        for (_bbox, text, confidence) in results:
-            text = text.strip()
-            # 筛选 2-4 位数字（门牌号常见格式：101, 102, A01, 301）
-            if re.match(r'^[A-Za-z]?\d{2,4}$', text):
-                if confidence > 0.3:
-                    room_numbers.append((text, confidence))
-
-        if room_numbers:
-            # 取置信度最高的
-            room_numbers.sort(key=lambda x: x[1], reverse=True)
-            best = room_numbers[0][0]
-
-            if best != self.last_result:
-                self.last_result = best
-                self.get_logger().info(
-                    f'[门牌] {best} (置信度 {room_numbers[0][1]:.2f})')
-                msg_out = String(data=best)
-                self.pub_result.publish(msg_out)
+        text, conf = result
+        if text != self.last_result:
+            self.last_result = text
+            self.get_logger().info(f'[门牌] {text} (置信度 {conf:.2f})')
+            self.pub_result.publish(String(data=text))
 
 
 def main(args=None):
