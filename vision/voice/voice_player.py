@@ -32,8 +32,8 @@ class VoicePlayer(Node):
 
         self.declare_parameter('audio_dir', '')
         audio_dir = self.get_parameter('audio_dir').value or \
-            os.path.join(os.path.dirname(__file__),
-                         '../../../resource/audio')
+            os.path.join(os.path.expanduser('~'),
+                         'yahboomcar_ros2_ws/yahboomcar_ws/resource/audio')
         self.audio_dir = os.path.abspath(audio_dir)
 
         # ── 初始化 pygame 混音器 ──

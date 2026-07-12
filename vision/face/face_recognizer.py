@@ -86,7 +86,7 @@ class FaceRecognizer(Node):
     def _load_face_room_map(self):
         """加载 face_room_map.yaml"""
         config_dir = os.path.join(
-            os.path.dirname(__file__), '../../../dev_ws/src/guide_pkg/config')
+            os.path.dirname(__file__), '../../src/guide_pkg/config')
         path = os.path.join(config_dir, 'face_room_map.yaml')
         try:
             with open(path, 'r', encoding='utf-8') as f:

@@ -44,18 +44,18 @@ rsync -avz \
   "${LOCAL_DIR}/dev_ws/src/" \
   "${CAR_USER}@${CAR_IP}:${CAR_WS}/src/"
 
-# 3b: 视觉模块
+# 3b: 视觉模块 → 工作空间根目录
 if [ -d "${LOCAL_DIR}/vision" ]; then
     rsync -avz --exclude='__pycache__/' --exclude='*.pyc' \
       "${LOCAL_DIR}/vision/" \
-      "${CAR_USER}@${CAR_IP}:${CAR_WS}/src/vision/"
+      "${CAR_USER}@${CAR_IP}:${CAR_WS}/vision/"
 fi
 
-# 3c: 资源文件（音频、地图等）
+# 3c: 资源文件 → 工作空间根目录
 if [ -d "${LOCAL_DIR}/resource" ]; then
     rsync -avz \
       "${LOCAL_DIR}/resource/" \
-      "${CAR_USER}@${CAR_IP}:${CAR_WS}/src/resource/"
+      "${CAR_USER}@${CAR_IP}:${CAR_WS}/resource/"
 fi
 
 echo ""
@@ -64,6 +64,15 @@ echo "  [完成] 同步成功！"
 echo "=========================================="
 echo ""
 echo "在小车上执行:"
-echo "  cd ${CAR_WS}"
-echo "  colcon build --symlink-install"
+echo "  d                                     # 进导航容器"
+echo "  cd ~/yahboomcar_ros2_ws/yahboomcar_ws"
+echo "  colcon build --symlink-install        # 编译 ROS2 包"
 echo "  source install/setup.bash"
+echo ""
+echo "视觉节点路径:"
+echo "  vision/face/face_recognizer.py"
+echo "  vision/doorplate/doorplate_detector.py"
+echo "  vision/voice/voice_player.py"
+echo ""
+echo "资源文件:"
+echo "  resource/audio/bgm.mp3"
