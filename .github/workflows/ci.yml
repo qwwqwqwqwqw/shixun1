@@ -74,7 +74,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     # 只有 push 到 master 分支、且配置了 Secrets 时才运行；没配置就自动跳过
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && secrets.CAR_SSH_KEY != '' }}
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     steps:
       - uses: actions/checkout@v4
       - name: 配置 SSH 免密登录
