@@ -88,10 +88,10 @@ python3 vision/launch/vision_launch.py
 ### 6. 测试
 ```bash
 # 手动模式测试
-python3 app/client_test.py manual 101
+python3 app/client_test.py manual 501
 
 # 人脸模式测试
-python3 app/client_test.py face 102
+python3 app/client_test.py face 502
 
 # 仅监听状态
 python3 app/client_test.py monitor

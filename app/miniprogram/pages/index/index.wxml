@@ -26,7 +26,37 @@
 
   <button class="btn-primary" bindtap="startNavigate">开始导航</button>
 
-  <view class="divider">或</view>
+  <view class="manual-card">
+    <view class="section-title manual-title">手动控制</view>
+    <text class="manual-tip">按住运动，松开立即停止</text>
 
+    <view class="control-grid">
+      <view class="control-btn forward {{manualActive == 'forward' ? 'pressed' : ''}}"
+            data-action="forward"
+            catchtouchstart="startManualControl"
+            catchtouchend="stopManualControl"
+            catchtouchcancel="stopManualControl">前进</view>
+      <view class="control-btn left {{manualActive == 'left' ? 'pressed' : ''}}"
+            data-action="left"
+            catchtouchstart="startManualControl"
+            catchtouchend="stopManualControl"
+            catchtouchcancel="stopManualControl">左转</view>
+      <view class="control-btn stop" bindtap="emergencyStop">停止</view>
+      <view class="control-btn right {{manualActive == 'right' ? 'pressed' : ''}}"
+            data-action="right"
+            catchtouchstart="startManualControl"
+            catchtouchend="stopManualControl"
+            catchtouchcancel="stopManualControl">右转</view>
+      <view class="control-btn backward {{manualActive == 'backward' ? 'pressed' : ''}}"
+            data-action="backward"
+            catchtouchstart="startManualControl"
+            catchtouchend="stopManualControl"
+            catchtouchcancel="stopManualControl">后退</view>
+    </view>
+  </view>
+
+  <!-- 第二版再启用人脸识别入口
+  <view class="divider">或</view>
   <button class="btn-face" bindtap="startFaceRecognition">人脸识别导航（第二版）</button>
+  -->
 </view>

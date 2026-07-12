@@ -3,19 +3,28 @@ const app = getApp();
 
 Page({
   data: {
-    rooms: ['101', '102', '103', '104', '105'],
+    rooms: ['501', '502', '503', '504', '505'],
     selectedRoom: '',
     customRoom: '',
     connected: false,
+    manualActive: '',
   },
 
   onLoad() {
     this.unsubscribe = app.subscribe((state) => {
       this.setData({ connected: state.connected });
+      if (!state.connected && this.data.manualActive) {
+        this.stopManualControl();
+      }
     });
   },
 
+  onHide() {
+    this.stopManualControl();
+  },
+
   onUnload() {
+    this.stopManualControl();
     if (this.unsubscribe) {
       this.unsubscribe();
     }
@@ -53,5 +62,64 @@ Page({
       title: '人脸识别为第二版功能',
       icon: 'none',
     });
+  },
+
+  startManualControl(e) {
+    if (!this.data.connected) {
+      wx.showToast({ title: '请先连接小车', icon: 'none' });
+      return;
+    }
+
+    const action = e.currentTarget.dataset.action;
+    const commands = {
+      forward: { vx: 0.2, wz: 0 },
+      backward: { vx: -0.2, wz: 0 },
+      left: { vx: 0, wz: 0.6 },
+      right: { vx: 0, wz: -0.6 },
+    };
+    const command = commands[action];
+    if (!command) {
+      return;
+    }
+
+    this.stopManualControl();
+    this.setData({ manualActive: action });
+    this.manualCommand = command;
+    app.sendMessage({ type: 'cancel' });
+    this.sendManualCommand();
+    this.manualTimer = setInterval(() => {
+      if (!app.globalData.connected) {
+        this.stopManualControl();
+        return;
+      }
+      this.sendManualCommand();
+    }, 100);
+  },
+
+  sendManualCommand() {
+    if (this.manualCommand) {
+      app.sendJoystick(this.manualCommand.vx, this.manualCommand.wz);
+    }
+  },
+
+  stopManualControl() {
+    if (this.manualTimer) {
+      clearInterval(this.manualTimer);
+      this.manualTimer = null;
+    }
+    if (this.manualCommand && app.globalData.connected) {
+      app.sendJoystick(0, 0);
+    }
+    this.manualCommand = null;
+    if (this.data.manualActive) {
+      this.setData({ manualActive: '' });
+    }
+  },
+
+  emergencyStop() {
+    this.stopManualControl();
+    if (app.globalData.connected) {
+      app.sendJoystick(0, 0);
+    }
   },
 });
