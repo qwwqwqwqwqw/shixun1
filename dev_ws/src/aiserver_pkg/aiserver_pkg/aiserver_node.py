@@ -39,6 +39,8 @@ class AiServerNode(Node):
             Twist, '/app_joystick', 10)
         self.pub_cancel = self.create_publisher(
             Bool, '/navigation_cancel', 10)
+        self.pub_client_event = self.create_publisher(
+            String, '/client_event', 10)
 
         # ── 订阅器 ──
         self.sub_status = self.create_subscription(
@@ -94,6 +96,7 @@ class AiServerNode(Node):
             try:
                 conn, addr = self.server_sock.accept()
                 self.get_logger().info(f'[连接] 小程序 {addr[0]}:{addr[1]}')
+                self.pub_client_event.publish(String(data='connected'))
                 with self._tcp_lock:
                     self._tcp_clients.append(conn)
                 threading.Thread(
@@ -119,6 +122,7 @@ class AiServerNode(Node):
             pass
         finally:
             self.get_logger().info(f'[断开] {addr[0]}:{addr[1]}')
+            self.pub_client_event.publish(String(data='disconnected'))
             # TCP 断开时立即发布零速度，避免小车保持最后一条运动指令。
             self.pub_app_joystick.publish(Twist())
             with self._tcp_lock:
