@@ -33,8 +33,8 @@ class AiServerNode(Node):
             String, '/command_room', 10)
         self.pub_face_room = self.create_publisher(
             String, '/face_room', 10)
-        self.pub_cmd_vel = self.create_publisher(
-            Twist, '/cmd_vel', 10)
+        self.pub_app_joystick = self.create_publisher(
+            Twist, '/app_joystick', 10)
         self.pub_cancel = self.create_publisher(
             Bool, '/navigation_cancel', 10)
 
@@ -151,7 +151,7 @@ class AiServerNode(Node):
             twist.linear.x = float(cmd.get('vx', 0))
             twist.linear.y = float(cmd.get('vy', 0))
             twist.angular.z = float(cmd.get('wz', 0))
-            self.pub_cmd_vel.publish(twist)
+            self.pub_app_joystick.publish(twist)
 
         elif msg_type == 'cancel':
             self.pub_cancel.publish(Bool(data=True))
