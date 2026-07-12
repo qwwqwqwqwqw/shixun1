@@ -24,3 +24,6 @@ websockets>=10.0
 
 # 工具
 setuptools>=60.0
+
+# 云平台集成 — MQTT 状态上报告 (E组员)
+paho-mqtt>=1.6.0

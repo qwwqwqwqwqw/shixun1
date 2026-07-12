@@ -1,47 +1,87 @@
-name: CI — 自动语法检查
+name: CI
 
+# 触发条件：任何人 push 代码，或提交 Pull Request 时自动运行
 on:
   push:
-    branches: [ main, develop ]
+    branches: ["**"]
   pull_request:
-    branches: [ main ]
+  workflow_dispatch:   # 允许在 GitHub 网页上手动点一下运行
 
 jobs:
-  python-lint:
+  # ---------- 第 1 步：语法与格式检查（不需要 ROS2，最快） ----------
+  lint:
+    name: 语法与格式检查 (Lint)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-
-      - name: Install lint tools
+          python-version: "3.10"
+      - name: 安装检查工具
         run: pip install flake8 pyyaml
-
-      - name: Flake8 语法检查
+      - name: Python 语法编译检查
         run: |
-          # 检查所有 Python 文件（排除模板和第三方代码）
-          find . -name "*.py" \
-            -not -path "./vision/doorplate/yolov5/*" \
-            -not -path "./.git/*" \
-            -not -path "*/__pycache__/*" \
-            | xargs flake8 --max-line-length=120 --extend-ignore=E203,W503 || true
-
-      - name: YAML 格式检查
-        run: |
-          find . -name "*.yaml" -o -name "*.yml" \
-            | xargs python3 -c "import sys, yaml; [yaml.safe_load(open(f)) for f in sys.argv[1:]]" || true
-
-      - name: 检查 ROS2 包完整性
-        run: |
-          echo "检查 package.xml..."
-          find . -name "package.xml" -exec xmllint --noout {} \; 2>/dev/null || true
-          echo "检查 __init__.py..."
-          find ./dev_ws/src -type d -name "*_pkg" | while read pkg; do
-            inner=$(basename "$pkg")
-            if [ ! -f "$pkg/$inner/__init__.py" ]; then
-              echo "缺少: $pkg/$inner/__init__.py"
-            fi
+          find . -name "*.py" -not -path "./dev_ws/install/*" -not -path "./dev_ws/build/*" | while read f; do
+            python -m py_compile "$f" || exit 1
           done
+          echo "所有 Python 文件语法 OK"
+      - name: YAML 格式校验
+        run: |
+          python - <<'PY'
+          import yaml, glob, sys
+          bad = []
+          for f in glob.glob("**/*.yaml", recursive=True) + glob.glob("**/*.yml", recursive=True):
+              if ".git" in f or "/install/" in f or "/build/" in f:
+                  continue
+              try:
+                  yaml.safe_load(open(f, encoding="utf-8"))
+              except Exception as e:
+                  bad.append((f, str(e)))
+          if bad:
+              for f, e in bad:
+                  print("YAML 错误:", f, e)
+              sys.exit(1)
+          print("所有 YAML 文件格式 OK")
+          PY
+      - name: flake8 代码风格检查（仅提示，不阻断）
+        run: |
+          flake8 --max-line-length=120 --extend-ignore=E402,W503 \
+            dev_ws/src app vision scripts 2>&1 || true
+
+  # ---------- 第 2 步：用 ROS2 官方镜像真正编译代码（自动构建） ----------
+  build:
+    name: ROS2 自动构建 (Build)
+    runs-on: ubuntu-latest
+    container: ros:humble
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - name: 准备 ROS2 环境并编译
+        run: |
+          apt-get update && apt-get install -y python3-colcon-common-extensions
+          source /opt/ros/humble/setup.bash
+          cd dev_ws
+          colcon build --packages-select guide_pkg aiserver_pkg
+      - name: 验证编译产物
+        run: |
+          source /opt/ros/humble/setup.bash
+          source dev_ws/install/setup.bash
+          ros2 pkg list | grep -E "guide_pkg|aiserver_pkg" && echo "BUILD OK"
+
+  # ---------- 第 3 步：自动部署到小车（需先在 GitHub 设置 Secrets） ----------
+  deploy:
+    name: 自动部署到小车 (Deploy)
+    runs-on: ubuntu-latest
+    needs: build
+    # 只有 push 到 master 分支、且配置了 Secrets 时才运行；没配置就自动跳过
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && secrets.CAR_SSH_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: 配置 SSH 免密登录
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.CAR_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.CAR_HOST }}" >> ~/.ssh/known_hosts
+      - name: 执行部署脚本
+        run: bash scripts/deploy.sh "${{ secrets.CAR_HOST }}"
