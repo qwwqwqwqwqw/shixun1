@@ -22,6 +22,7 @@ import os
 import rclpy
 from rclpy.node import Node
 from rclpy.action import ActionClient
+from geometry_msgs.msg import PoseWithCovarianceStamped
 from std_msgs.msg import String, Bool
 from nav2_msgs.action import NavigateToPose
 
@@ -32,11 +33,11 @@ class GuideNode(Node):
     def __init__(self):
         super().__init__('guide_node')
 
-        # ── 加载教室坐标 ──
+        # ── 加载教室坐标 + 起点 ──
         config_dir = os.path.join(
             os.path.dirname(__file__), '..', 'config')
         classroom_path = os.path.join(config_dir, 'classrooms.yaml')
-        self.classrooms = load_classrooms(classroom_path)
+        self.classrooms, self.origin = load_classrooms(classroom_path)
         self.get_logger().info(f'已加载 {len(self.classrooms)} 个教室坐标')
 
         # ── Nav2 Action 客户端 ──
@@ -60,10 +61,39 @@ class GuideNode(Node):
         # ── 发布器 ──
         self.pub_status = self.create_publisher(
             String, '/navigation_status', 10)
+        self.pub_initialpose = self.create_publisher(
+            PoseWithCovarianceStamped, '/initialpose', 10)
+
+        # 延迟 1 秒自动设置初始位姿（等 AMCL 就绪）
+        self._init_pose_timer = self.create_timer(1.0, self._set_initial_pose)
 
         self.get_logger().info('guide_node 已启动 — 等待 /command_room 或 /face_room 指令')
 
     # ──────────── 指令入口 ────────────
+
+    def _set_initial_pose(self):
+        """自动设置 AMCL 初始位姿，无需手动 2D Pose Estimate。"""
+        self._init_pose_timer.cancel()
+        if self.origin is None:
+            return
+        ox, oy, oyaw = self.origin['x'], self.origin['y'], self.origin.get('yaw', 0.0)
+        msg = PoseWithCovarianceStamped()
+        msg.header.frame_id = 'map'
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.pose.position.x = ox
+        msg.pose.pose.position.y = oy
+        msg.pose.pose.position.z = 0.0
+        # 简单朝向（绕 Z 轴）
+        import math
+        msg.pose.pose.orientation.z = math.sin(oyaw / 2.0)
+        msg.pose.pose.orientation.w = math.cos(oyaw / 2.0)
+        # 低协方差 = "我很确定"
+        msg.pose.covariance[0] = 0.25
+        msg.pose.covariance[7] = 0.25
+        msg.pose.covariance[35] = 0.0685
+        self.pub_initialpose.publish(msg)
+        self.get_logger().info(
+            f'[初始位姿] 已自动设置起点 x={ox:.2f} y={oy:.2f} yaw={oyaw:.2f}')
 
     def _check_nav2_ready(self):
         """周期性检测 Nav2 是否可用。"""

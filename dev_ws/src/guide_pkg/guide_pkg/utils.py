@@ -12,10 +12,12 @@ from geometry_msgs.msg import PoseStamped
 
 
 def load_classrooms(yaml_path):
-    """从 classrooms.yaml 加载教室号 → 坐标映射。"""
+    """从 classrooms.yaml 加载教室号 → 坐标映射 + 起点坐标。"""
     with open(yaml_path, 'r', encoding='utf-8') as f:
-        data = yaml.safe_load(f)
-    return data.get('classrooms', {}) if data else {}
+        data = yaml.safe_load(f) or {}
+    classrooms = data.get('classrooms', {})
+    origin = data.get('origin', None)
+    return classrooms, origin
 
 
 def load_face_room_map(yaml_path):
