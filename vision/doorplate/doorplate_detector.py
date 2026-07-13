@@ -16,6 +16,7 @@ import cv2
 DETECTOR = 'easyocr'
 YOLO_MODEL = 'doorplate_best.pt'
 YOLO_CONF = 0.5
+DOORPLATE_CLASSES = {'doorplate', 'classboard'}  # 有门牌号数字的类别
 
 
 # ── EasyOCR ──
@@ -56,23 +57,32 @@ class YoloDetector:
         if boxes is None or len(boxes) == 0:
             return None
 
-        # 取置信度最高的检测框
-        best = max(boxes, key=lambda b: b.conf.item())
-        conf = best.conf.item()
+        # 获取类别名映射
+        names = self.model.names
 
-        # 裁剪门牌区域
-        x1, y1, x2, y2 = map(int, best.xyxy[0])
-        crop = frame[y1:y2, x1:x2]
-        if crop.size == 0:
-            return None
+        # 只处理 doorplate / classboard 类别
+        candidates = []
+        for box in boxes:
+            cls_id = int(box.cls.item())
+            cls_name = names.get(cls_id, '')
+            if cls_name not in DOORPLATE_CLASSES:
+                continue
+            conf = box.conf.item()
+            x1, y1, x2, y2 = map(int, box.xyxy[0])
+            crop = frame[y1:y2, x1:x2]
+            if crop.size == 0:
+                continue
+            # OCR
+            ocr_results = self.ocr.readtext(crop)
+            for (_b, text, ocr_conf) in ocr_results:
+                text = text.strip()
+                if re.match(r'^[A-Za-z]?\d{2,4}$', text) and ocr_conf > 0.3:
+                    candidates.append((text, min(conf, ocr_conf)))
+                    break  # 每个框只取第一个有效数字
 
-        # OCR 提取数字
-        ocr_results = self.ocr.readtext(crop)
-        for (_b, text, ocr_conf) in ocr_results:
-            text = text.strip()
-            if re.match(r'^[A-Za-z]?\d{2,4}$', text) and ocr_conf > 0.3:
-                return (text, min(conf, ocr_conf))
-
+        if candidates:
+            candidates.sort(key=lambda x: x[1], reverse=True)
+            return candidates[0]
         return None
 
 
