@@ -1,67 +1,111 @@
+"""人脸识别测试 — 摄像头实时模式。
+
+使用 dlib 预训练模型，比对 known_faces/ 目录下的人脸照片。
+运行 5 秒，输出识别结果。
+"""
 import face_recognition
+import cv2
 import os
+import time
 
 print("=" * 50)
-print("人脸识别测试 (图片模式)")
+print("  人脸识别测试 (摄像头模式)")
 print("=" * 50)
 
-# 1. 加载人脸库
+# ── 1. 加载已知人脸 ──
+FACE_DIR = os.path.join(os.path.dirname(__file__), "known_faces")
 known_encodings = []
 known_names = []
-face_dir = "known_faces/"
 
-print(f"\n📂 加载人脸库: {face_dir}")
-
-if not os.path.exists(face_dir):
-    print(f"❌ 文件夹不存在: {face_dir}")
-    exit()
-
-files = os.listdir(face_dir)
-if not files:
-    print(f"❌ {face_dir} 为空，请先放入人脸照片")
-    exit()
-
-for f in files:
-    if f.lower().endswith(('.jpg', '.jpeg', '.png')):
-        name = os.path.splitext(f)[0]
-        img_path = os.path.join(face_dir, f)
-        img = face_recognition.load_image_file(img_path)
-        enc = face_recognition.face_encodings(img)
-        if enc:
-            known_encodings.append(enc[0])
-            known_names.append(name)
-            print(f"   ✅ {name} (加载成功)")
-        else:
-            print(f"   ❌ {f} (未检测到人脸)")
+print(f"\n[加载] 人脸库: {FACE_DIR}")
+for fname in os.listdir(FACE_DIR):
+    if not fname.lower().endswith(('.jpg', '.jpeg', '.png')):
+        continue
+    name = os.path.splitext(fname)[0]
+    path = os.path.join(FACE_DIR, fname)
+    img = face_recognition.load_image_file(path)
+    encodings = face_recognition.face_encodings(img)
+    if encodings:
+        known_encodings.append(encodings[0])
+        known_names.append(name)
+        print(f"   ✅ {name}")
+    else:
+        print(f"   ❌ {fname} — 未检测到人脸")
 
 if not known_names:
-    print("\n❌ 未加载到任何人脸")
-    exit()
+    print("\n❌ 未加载到任何人脸，请先放入照片到 known_faces/")
+    exit(1)
 
-# 2. 识别测试图片
-test_image = "test.jpg"
-if not os.path.exists(test_image):
-    print(f"\n❌ 测试图片不存在: {test_image}")
-    print("请放一张 test.jpg 到当前目录")
-    exit()
+# ── 2. 打开摄像头 ──
+print("\n[相机] 正在打开摄像头...")
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    print("❌ 无法打开摄像头，尝试索引 2...")
+    cap = cv2.VideoCapture(2)
+if not cap.isOpened():
+    print("❌ 摄像头不可用")
+    exit(1)
 
-print(f"\n🔍 识别测试图片: {test_image}")
-img = face_recognition.load_image_file(test_image)
-face_locations = face_recognition.face_locations(img)
-face_encodings = face_recognition.face_encodings(img, face_locations)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+print("✅ 摄像头已就绪，开始识别（5 秒）...")
 
-if not face_encodings:
-    print("❌ 测试图片中未检测到人脸")
-    exit()
+# ── 3. 实时识别 5 秒 ──
+DURATION = 5.0   # 识别时长（秒）
+PROCESS_EVERY_N_FRAMES = 15  # 每 15 帧处理一次
+start_time = time.time()
+frame_count = 0
+results = {}     # name → 识别次数
 
-print(f"\n检测到 {len(face_locations)} 张人脸")
+while time.time() - start_time < DURATION:
+    ret, frame = cap.read()
+    if not ret:
+        time.sleep(0.05)
+        continue
 
-for encoding in face_encodings:
-    matches = face_recognition.compare_faces(known_encodings, encoding, tolerance=0.55)
-    if True in matches:
-        idx = matches.index(True)
-        print(f"✅ 识别结果: {known_names[idx]}")
-    else:
-        print("❌ 未识别（陌生人）")
+    frame_count += 1
+    if frame_count % PROCESS_EVERY_N_FRAMES != 0:
+        # 显示实时画面（带倒计时）
+        remaining = DURATION - (time.time() - start_time)
+        cv2.putText(frame, f"识别中... {remaining:.1f}s",
+                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        cv2.imshow("人脸识别测试 — 按 Q 提前退出", frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+        continue
+
+    # 缩小区理加速
+    small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
+    rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+
+    locations = face_recognition.face_locations(rgb, model='hog')
+    if locations:
+        encodings = face_recognition.face_encodings(rgb, locations)
+        for encoding in encodings:
+            distances = face_recognition.face_distance(known_encodings, encoding)
+            best_idx = int(min(range(len(distances)), key=distances.__getitem__))
+            if distances[best_idx] < 0.55:
+                name = known_names[best_idx]
+                results[name] = results.get(name, 0) + 1
+
+    remaining = DURATION - (time.time() - start_time)
+    cv2.putText(frame, f"识别中... {remaining:.1f}s",
+                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+    cv2.imshow("人脸识别测试 — 按 Q 提前退出", frame)
+    cv2.waitKey(1)
+
+# ── 4. 输出结果 ──
+cap.release()
+cv2.destroyAllWindows()
 
 print("\n" + "=" * 50)
+print(f"  识别结束（共处理 {frame_count} 帧）")
+print("=" * 50)
+
+if results:
+    # 取出现次数最多的人
+    best_name = max(results, key=results.get)
+    count = results[best_name]
+    print(f"✅ 识别结果: {best_name}（命中 {count} 次）")
+else:
+    print("❌ 未识别到已知人脸")
