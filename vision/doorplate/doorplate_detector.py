@@ -86,6 +86,7 @@ class DoorplateDetector(Node):
         self.get_logger().info('doorplate_detector 已启动')
 
     def _process_frame(self):
+        assert self.cap is not None
         now = time.time()
         if now - self.last_process < self.process_interval:
             return
@@ -106,7 +107,8 @@ class DoorplateDetector(Node):
             self.pub_result.publish(String(data=text))
 
     def destroy_node(self):
-        self.cap.release()
+        if self.cap is not None:
+            self.cap.release()
         super().destroy_node()
 
 

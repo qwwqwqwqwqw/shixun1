@@ -85,6 +85,7 @@ class FaceRecognizer(Node):
             pass
 
     def _process_frame(self):
+        assert self.cap is not None
         now = time.time()
         if now - self.last_process < self.process_interval:
             return
@@ -121,7 +122,8 @@ class FaceRecognizer(Node):
                 break
 
     def destroy_node(self):
-        self.cap.release()
+        if self.cap is not None:
+            self.cap.release()
         super().destroy_node()
 
 
