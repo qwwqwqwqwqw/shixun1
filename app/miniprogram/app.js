@@ -8,6 +8,9 @@ App({
     navStatus: '等待导航指令',
     robotPose: null,
     arrivalConfirmed: false,
+    faceMode: false,
+    faceStatus: '',
+    recognizedName: '',
     connected: false,
     tcp: null,
   },
@@ -120,6 +123,7 @@ App({
     }
     this.globalData.tcp = null;
     this.globalData.connected = false;
+    this.globalData.faceMode = false;
     this._connecting = false;
     this._notify();
     this._scheduleReconnect();
@@ -135,7 +139,22 @@ App({
       this.globalData.arrivalConfirmed = Boolean(data.message);
     } else if (data.type === 'robot_pose') {
       this.globalData.robotPose = data.data || null;
+    } else if (data.type === 'face_status') {
+      this.globalData.faceStatus = data.message || '人脸识别状态未知';
+      if (data.name) {
+        this.globalData.recognizedName = data.name;
+      }
+      if (data.room) {
+        this.globalData.currentRoom = data.room;
+      }
+      this.globalData.faceMode = ![
+        'ready', 'recognized', 'stopped', 'timeout', 'error',
+      ].includes(data.status);
     } else if (data.type === 'error') {
+      if (/人脸/.test(data.message || '')) {
+        this.globalData.faceMode = false;
+        this.globalData.faceStatus = data.message;
+      }
       wx.showToast({ title: data.message || '服务端错误', icon: 'none' });
     }
     this._notify(data);
@@ -193,6 +212,12 @@ App({
     if (!normalizedRoom) {
       return false;
     }
+    if (this.globalData.faceMode) {
+      this.sendMessage({ type: 'face_mode', action: 'stop' });
+    }
+    this.globalData.faceMode = false;
+    this.globalData.faceStatus = '';
+    this.globalData.recognizedName = '';
     this.globalData.currentRoom = normalizedRoom;
     this.globalData.navStatus = this.globalData.connected
       ? '指令已发送，等待小车响应'
@@ -218,6 +243,23 @@ App({
     }, false);
   },
 
+  sendFaceMode(action) {
+    if (action === 'start') {
+      this.globalData.faceMode = true;
+      this.globalData.faceStatus = '正在启动人脸识别';
+      this.globalData.recognizedName = '';
+      this.globalData.currentRoom = '';
+      this.globalData.arrivalConfirmed = false;
+      this.globalData.navStatus = '等待人脸识别结果';
+    } else {
+      this.globalData.faceMode = false;
+      this.globalData.faceStatus = '人脸识别已停止';
+    }
+    const sent = this.sendMessage({ type: 'face_mode', action });
+    this._notify();
+    return sent;
+  },
+
   subscribe(listener) {
     if (typeof listener !== 'function') {
       return () => {};
@@ -236,6 +278,9 @@ App({
       navStatus: this.globalData.navStatus,
       robotPose: this.globalData.robotPose,
       arrivalConfirmed: this.globalData.arrivalConfirmed,
+      faceMode: this.globalData.faceMode,
+      faceStatus: this.globalData.faceStatus,
+      recognizedName: this.globalData.recognizedName,
     };
   },
 

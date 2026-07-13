@@ -20,6 +20,12 @@
 .value.position { font-size: 26rpx; font-weight: normal; }
 .value.ok { color: #07c160; }
 .value.pending { color: #faad14; }
+.face-value {
+  display: flex; flex-direction: column; align-items: flex-end;
+  max-width: 68%;
+}
+.face-value .value { max-width: 100%; color: #1677ff; }
+.face-name { margin-top: 8rpx; color: #07c160; font-size: 24rpx; }
 .btn-cancel {
   margin-top: 30rpx; color: #e64340; background: #fff;
   border: 2rpx solid #e64340; border-radius: 12rpx;

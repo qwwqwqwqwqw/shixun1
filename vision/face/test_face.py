@@ -3,8 +3,8 @@
 使用 dlib 预训练模型，比对 known_faces/ 目录下的人脸照片。
 运行 5 秒，输出识别结果。
 """
-import face_recognition
-import cv2
+import face_recognition  # pyright: ignore[reportMissingImports]
+import cv2  # pyright: ignore[reportMissingImports]
 import os
 import time
 
@@ -38,17 +38,23 @@ if not known_names:
 
 # ── 2. 打开摄像头 ──
 print("\n[相机] 正在打开摄像头...")
-cap = cv2.VideoCapture(0)
-if not cap.isOpened():
-    print("❌ 无法打开摄像头，尝试索引 2...")
-    cap = cv2.VideoCapture(2)
-if not cap.isOpened():
+cap = None
+for camera_index in [2, 4, 6, 0]:
+    candidate = cv2.VideoCapture(camera_index)
+    if candidate.isOpened():
+        ok, _ = candidate.read()
+        if ok:
+            cap = candidate
+            print(f"✅ 摄像头 /dev/video{camera_index} 已就绪")
+            break
+    candidate.release()
+if cap is None:
     print("❌ 摄像头不可用")
     exit(1)
 
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-print("✅ 摄像头已就绪，开始识别（5 秒）...")
+print("开始识别（5 秒）...")
 
 # ── 3. 实时识别 5 秒 ──
 DURATION = 5.0   # 识别时长（秒）
@@ -84,7 +90,7 @@ while time.time() - start_time < DURATION:
         for encoding in encodings:
             distances = face_recognition.face_distance(known_encodings, encoding)
             best_idx = int(min(range(len(distances)), key=distances.__getitem__))
-            if distances[best_idx] < 0.55:
+            if distances[best_idx] < 0.5:
                 name = known_names[best_idx]
                 results[name] = results.get(name, 0) + 1
 

@@ -58,10 +58,13 @@ Page({
   },
 
   startFaceRecognition() {
-    wx.showToast({
-      title: '人脸识别为第二版功能',
-      icon: 'none',
-    });
+    if (!this.data.connected) {
+      wx.showToast({ title: '请先连接小车', icon: 'none' });
+      return;
+    }
+    this.stopManualControl();
+    app.sendFaceMode('start');
+    wx.navigateTo({ url: '/pages/status/status?source=face' });
   },
 
   startManualControl(e) {
@@ -87,6 +90,9 @@ Page({
     this.stopManualControl();
     this.setData({ manualActive: action });
     this.manualCommand = command;
+    if (app.globalData.faceMode) {
+      app.sendFaceMode('stop');
+    }
     app.sendMessage({ type: 'cancel' });
     this.sendManualCommand();
     this.manualTimer = setInterval(() => {

@@ -5,7 +5,7 @@
 
 订阅话题：
   - /command_room (std_msgs/String) : 小程序手动输入教室号
-  - /face_room    (std_msgs/String) : 人脸识别房间号 / 人脸模式控制
+  - /face_room    (std_msgs/String) : 人脸识别映射后的教室号
   - /navigation_cancel (std_msgs/Bool) : 取消当前导航
 
 发布话题：
@@ -19,12 +19,12 @@
   - classrooms.yaml 中有教室坐标
 """
 import os
-import rclpy
-from rclpy.node import Node
-from rclpy.action import ActionClient
-from geometry_msgs.msg import PoseWithCovarianceStamped
-from std_msgs.msg import String, Bool
-from nav2_msgs.action import NavigateToPose
+import rclpy  # pyright: ignore[reportMissingImports]
+from rclpy.node import Node  # pyright: ignore[reportMissingImports]
+from rclpy.action import ActionClient  # pyright: ignore[reportMissingImports]
+from geometry_msgs.msg import PoseWithCovarianceStamped  # pyright: ignore[reportMissingImports]
+from std_msgs.msg import String, Bool  # pyright: ignore[reportMissingImports]
+from nav2_msgs.action import NavigateToPose  # pyright: ignore[reportMissingImports]
 
 from guide_pkg.utils import load_classrooms, make_pose_stamped
 
@@ -112,13 +112,9 @@ class GuideNode(Node):
         self._navigate_to(room, source='manual')
 
     def on_face_room(self, msg):
-        """人脸模式：人脸识别结果或控制指令"""
+        """人脸识别结果：收到映射后的教室号并开始导航。"""
         data = msg.data.strip()
         if not data:
-            return
-        if data.lower() in ('start', 'stop'):
-            self.get_logger().info(f'[人脸] 模式: {data}')
-            self.publish_status(f'人脸识别模式: {data}')
             return
         self.get_logger().info(f'[人脸] 房间号: {data}')
         self._navigate_to(data, source='face')
