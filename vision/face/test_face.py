@@ -104,7 +104,7 @@ print("=" * 50)
 
 if results:
     # 取出现次数最多的人
-    best_name = max(results, key=results.get)
+    best_name = max(results, key=lambda k: results[k])
     count = results[best_name]
     print(f"✅ 识别结果: {best_name}（命中 {count} 次）")
 else:
