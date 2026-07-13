@@ -42,16 +42,37 @@ class EasyOcrDetector:
 
 # ── YOLO ──
 class YoloDetector:
+    """YOLO 检测门牌区域 → EasyOCR 读数字"""
+
     def __init__(self):
         from ultralytics import YOLO
         self.model = YOLO(YOLO_MODEL)
+        import easyocr
+        self.ocr = easyocr.Reader(['en'], gpu=False)  # type: ignore
 
     def detect(self, frame):
         results = self.model(frame, conf=YOLO_CONF, verbose=False)
-        if results[0].boxes is not None and len(results[0].boxes) > 0:
-            best = max(results[0].boxes, key=lambda b: b.conf.item())
-            label = int(best.cls.item()) if hasattr(best, 'cls') else 0
-            return (str(label), best.conf.item())
+        boxes = results[0].boxes
+        if boxes is None or len(boxes) == 0:
+            return None
+
+        # 取置信度最高的检测框
+        best = max(boxes, key=lambda b: b.conf.item())
+        conf = best.conf.item()
+
+        # 裁剪门牌区域
+        x1, y1, x2, y2 = map(int, best.xyxy[0])
+        crop = frame[y1:y2, x1:x2]
+        if crop.size == 0:
+            return None
+
+        # OCR 提取数字
+        ocr_results = self.ocr.readtext(crop)
+        for (_b, text, ocr_conf) in ocr_results:
+            text = text.strip()
+            if re.match(r'^[A-Za-z]?\d{2,4}$', text) and ocr_conf > 0.3:
+                return (text, min(conf, ocr_conf))
+
         return None
 
 
