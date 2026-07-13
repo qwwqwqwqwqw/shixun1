@@ -1,99 +1,76 @@
-"""语音模块独立测试 — 无需 ROS2，直接测试音频播放"""
+"""语音模块独立测试 — 零依赖，基于 aplay + ffplay"""
 import os
-import sys
 import subprocess
 import time
-
-try:
-    import pygame.mixer
-    HAS_PYGAME = True
-except ImportError:
-    HAS_PYGAME = False
 
 AUDIO_DIR = os.path.join(os.path.expanduser('~'),
                          'yahboomcar_ros2_ws/yahboomcar_ws/resource/audio')
 
+# 检测可用工具
+WAV_PLAYER = 'aplay'
+MP3_PLAYER = None
+for cmd in ['ffplay', 'mpg123', 'ffmpeg']:
+    if subprocess.run(['which', cmd], capture_output=True).returncode == 0:
+        MP3_PLAYER = cmd
+        break
 
-def tts(text):
-    """espeak 文字转语音"""
-    try:
-        subprocess.run(['espeak', '-v', 'zh', text], timeout=10)
-    except FileNotFoundError:
-        print('[WARN] espeak 未安装，跳过: sudo apt install espeak')
-    except Exception as e:
-        print(f'[WARN] TTS 失败: {e}')
+print(f'播放器: WAV={WAV_PLAYER}, MP3={MP3_PLAYER or "无"}')
+print(f'音频目录: {AUDIO_DIR}')
+print('=' * 40)
 
 
-def play_wav(filename):
-    """播放 WAV 文件"""
-    path = os.path.join(AUDIO_DIR, filename)
-    if os.path.exists(path) and HAS_PYGAME:
-        sound = pygame.mixer.Sound(path)
-        sound.play()
-        time.sleep(sound.get_length() + 0.5)
+def play_wav(name):
+    path = os.path.join(AUDIO_DIR, name)
+    if os.path.exists(path):
+        print(f'[播放] {name}')
+        subprocess.run([WAV_PLAYER, '-q', path], capture_output=True)
     else:
-        print(f'[WARN] 文件不存在或 pygame 不可用: {filename}')
+        print(f'[跳过] {name} 不存在')
 
 
-def play_bgm():
-    """循环播放音乐 5 秒"""
+def play_bgm(seconds=5):
+    if not MP3_PLAYER:
+        print('[跳过] 无 MP3 播放器，小车可 apt install ffmpeg')
+        return
     path = os.path.join(AUDIO_DIR, 'bgm.mp3')
-    if os.path.exists(path) and HAS_PYGAME:
-        pygame.mixer.music.load(path)
-        pygame.mixer.music.set_volume(0.5)
-        pygame.mixer.music.play(-1)
-        print('[BGM] 播放中... 5秒后自动停止')
-        time.sleep(5)
-        pygame.mixer.music.fadeout(500)
-    else:
-        print(f'[WARN] bgm.mp3 不存在或 pygame 不可用')
+    if not os.path.exists(path):
+        print('[跳过] bgm.mp3 不存在')
+        return
+    print(f'[BGM] 播放 {seconds} 秒...')
+    p = None
+    try:
+        if MP3_PLAYER == 'ffplay':
+            p = subprocess.Popen(
+                ['ffplay', '-nodisp', '-loop', '0', '-autoexit',
+                 path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif MP3_PLAYER == 'mpg123':
+            p = subprocess.Popen(
+                ['mpg123', '--loop', '-1', path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        elif MP3_PLAYER == 'ffmpeg':
+            p = subprocess.Popen(
+                ['ffmpeg', '-stream_loop', '-1', '-i', path,
+                 '-f', 'alsa', 'default', '-q:a', '0'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(seconds)
+    finally:
+        if p:
+            p.terminate()
 
 
-def main():
-    print('=' * 40)
-    print('  语音模块独立测试')
-    print('=' * 40)
+# ── 测试序列 ──
+print('\n[1] 欢迎')
+play_wav('welcome.wav')
+time.sleep(0.5)
 
-    # 初始化
-    if HAS_PYGAME:
-        pygame.mixer.init()
-        print('[OK] pygame 混音器已初始化')
-    else:
-        print('[WARN] pygame 未安装，仅测试 espeak TTS')
+print('\n[2] 导航中')
+play_wav('navigating.wav')
+time.sleep(0.5)
 
-    # 1. 欢迎提示
-    print('\n[1] 欢迎提示...')
-    wav = os.path.join(AUDIO_DIR, 'welcome.wav')
-    if os.path.exists(wav):
-        play_wav('welcome.wav')
-    else:
-        tts('欢迎使用智能小车导航系统')
+print('\n[3] BGM 背景音乐')
+play_bgm(5)
 
-    time.sleep(1)
+print('\n[4] 到达')
+play_wav('arrived.wav')
 
-    # 2. 导航中提示
-    print('\n[2] 导航中...')
-    tts('正在导航')
-
-    time.sleep(0.5)
-
-    # 3. 循环 BGM
-    print('\n[3] 背景音乐...')
-    play_bgm()
-
-    time.sleep(0.5)
-
-    # 4. 到达提示
-    print('\n[4] 到达提示...')
-    wav = os.path.join(AUDIO_DIR, 'arrived.wav')
-    if os.path.exists(wav):
-        play_wav('arrived.wav')
-    else:
-        tts('已到达目的地，请下车')
-
-    print('\n[完成] 测试结束')
-    pygame.mixer.quit() if HAS_PYGAME else None
-
-
-if __name__ == '__main__':
-    main()
+print('\n[完成]')

@@ -33,6 +33,8 @@ class FaceRecognizer(Node):
         super().__init__('face_recognizer')
 
         assert HAS_FACE_RECOG, 'face_recognition 未安装，请执行: pip3 install face_recognition'
+        # Pylance 类型收窄
+        assert _face_recog is not None
 
         # ── 加载已知人脸 ──
         self.known_encodings = []
@@ -73,8 +75,8 @@ class FaceRecognizer(Node):
             if fname.startswith('.') or fname == 'README.md':
                 continue
             path = os.path.join(base, fname)
-            img = _face_recog.load_image_file(path)
-            encodings = _face_recog.face_encodings(img)
+            img = _face_recog.load_image_file(path)  # type: ignore[union-attr]
+            encodings = _face_recog.face_encodings(img)  # type: ignore[union-attr]
             if encodings:
                 name = os.path.splitext(fname)[0]
                 self.known_encodings.append(encodings[0])
@@ -113,19 +115,19 @@ class FaceRecognizer(Node):
         rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
         # 检测人脸位置
-        locations = _face_recog.face_locations(rgb)
+        locations = _face_recog.face_locations(rgb)  # type: ignore[union-attr]
         if not locations:
             return
 
         # 编码检测到的人脸
-        encodings = _face_recog.face_encodings(rgb, locations)
+        encodings = _face_recog.face_encodings(rgb, locations)  # type: ignore[union-attr]
 
         for encoding in encodings:
             if not self.known_encodings:
                 self.get_logger().warn('检测到人脸，但无已知人脸可对比')
                 continue
 
-            distances = _face_recog.face_distance(
+            distances = _face_recog.face_distance(  # type: ignore[union-attr]
                 self.known_encodings, encoding)
             best_idx = int(np.argmin(distances))
             min_dist = distances[best_idx]
