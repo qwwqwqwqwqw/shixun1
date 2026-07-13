@@ -1,4 +1,4 @@
-# Python
+# Python 缓存
 __pycache__/
 *.pyc
 *.pyo
@@ -6,6 +6,12 @@ __pycache__/
 build/
 install/
 log/
+
+# 虚拟环境
+face_env/
+venv/
+env/
+.venv/
 
 # IDE 配置
 .vscode/
@@ -16,26 +22,24 @@ pyrightconfig.json
 *.swp
 *.swo
 
-# 地图大文件（保留 maps/ 下的示例）
+# 地图大文件
 *.pgm
-# 但保留 maps/ 目录下的（取消下行注释即可保留）
-#!maps/*.pgm
 
 # 人脸特征缓存
 *.pkl
 
 # 数据集（太大不提交）
 vision/doorplate/dataset/
+
+# 人脸照片（隐私，不提交）
 vision/face/known_faces/*.jpg
 vision/face/known_faces/*.png
 # 保留 README
 !vision/face/known_faces/README.md
-!vision/doorplate/dataset/README.md
 
-# YOLO 权重（太大）
+# YOLO 模型权重
 vision/doorplate/best.pt
-# 保留占位说明
-!vision/doorplate/yolov5/
+vision/doorplate/*.pt
 
 # 日志
 *.log
@@ -50,8 +54,14 @@ dev_ws/build/
 dev_ws/install/
 dev_ws/log/
 
-# 进程记录文件（不提交）
+# 进程记录
 process.md
+
+# 调试输出
+vision/doorplate/debug_output/
+
+# 测试图片
+vision/doorplate/*.jpg
 
 # 系统文件
 .DS_Store
