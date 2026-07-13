@@ -1,92 +1,72 @@
-"""人脸识别节点 — 使用 face_recognition 库（dlib 预训练模型，无需额外训练）。
+"""人脸识别节点 — face_recognition（dlib 预训练模型）。
 
-流程：
-  摄像头 → 人脸检测 → 比对 known_faces/ → 查 face_room_map.yaml → /face_room
-
-订阅话题：
-  - /camera/color/image_raw (sensor_msgs/Image) : RGB 摄像头图像
-
-发布话题：
-  - /face_room (std_msgs/String) : 识别到的房间号
+摄像头：OpenCV 直读 /dev/video0（不依赖 ROS2 相机驱动）。
 """
 import os
 import time
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
 import cv2
 import numpy as np
 import yaml
 
 try:
-    import face_recognition as _face_recog
-    HAS_FACE_RECOG = True
+    import face_recognition as _fr
+    HAS_FACE = True
 except ImportError:
-    _face_recog = None  # type: ignore
-    HAS_FACE_RECOG = False
+    _fr = None  # type: ignore
+    HAS_FACE = False
 
 
 class FaceRecognizer(Node):
     def __init__(self):
         super().__init__('face_recognizer')
+        assert HAS_FACE, 'face_recognition 未安装: pip3 install face_recognition'
 
-        assert HAS_FACE_RECOG, 'face_recognition 未安装，请执行: pip3 install face_recognition'
-        # Pylance 类型收窄
-        assert _face_recog is not None
-
-        # ── 加载已知人脸 ──
         self.known_encodings = []
         self.known_names = []
         self._load_known_faces()
 
-        # ── 加载人名→房间号映射 ──
         self.face_room_map = {}
         self._load_face_room_map()
 
-        # ── 发布 /face_room ──
-        self.pub_face_room = self.create_publisher(
-            String, '/face_room', 10)
+        self.pub_face_room = self.create_publisher(String, '/face_room', 10)
 
-        # ── 订阅摄像头 ──
-        self.bridge = CvBridge()
-        self.sub_image = self.create_subscription(
-            Image, '/camera/color/image_raw', self.on_image, 10)
+        # OpenCV 直读摄像头
+        self.cap = cv2.VideoCapture(0)
+        if not self.cap.isOpened():
+            self.cap = cv2.VideoCapture(2)
+        assert self.cap.isOpened(), '摄像头不可用'
 
-        # ── 节流控制 ──
-        self.process_interval = 1.0   # 每秒处理一帧
-        self.last_process_time = 0.0
-        self.last_person = ''         # 避免重复发布
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+
+        self.process_interval = 1.0
+        self.last_process = 0.0
+        self.last_person = ''
+
+        # 定时器驱动帧处理
+        self.timer = self.create_timer(0.3, self._process_frame)
 
         self.get_logger().info(
-            f'face_recognizer 已启动 — {len(self.known_names)} 个已知人脸, '
-            f'{len(self.face_room_map)} 条映射')
-
-    # ──────────── 加载 ────────────
+            f'face_recognizer 已启动 — {len(self.known_names)} 人脸')
 
     def _load_known_faces(self):
-        """读取 known_faces/ 下所有图片，编码人脸。"""
         base = os.path.join(os.path.dirname(__file__), 'known_faces')
         if not os.path.isdir(base):
-            self.get_logger().warn(f'已知人脸目录不存在: {base}')
             return
         for fname in os.listdir(base):
             if fname.startswith('.') or fname == 'README.md':
                 continue
             path = os.path.join(base, fname)
-            img = _face_recog.load_image_file(path)  # type: ignore[union-attr]
-            encodings = _face_recog.face_encodings(img)  # type: ignore[union-attr]
-            if encodings:
-                name = os.path.splitext(fname)[0]
-                self.known_encodings.append(encodings[0])
-                self.known_names.append(name)
-                self.get_logger().info(f'  已加载: {name}')
-            else:
-                self.get_logger().warn(f'  未检测到人脸: {fname}')
+            img = _fr.load_image_file(path)  # type: ignore
+            encs = _fr.face_encodings(img)   # type: ignore
+            if encs:
+                self.known_encodings.append(encs[0])
+                self.known_names.append(os.path.splitext(fname)[0])
 
     def _load_face_room_map(self):
-        """加载 face_room_map.yaml"""
         config_dir = os.path.join(
             os.path.dirname(__file__), '../../src/guide_pkg/config')
         path = os.path.join(config_dir, 'face_room_map.yaml')
@@ -95,68 +75,52 @@ class FaceRecognizer(Node):
                 data = yaml.safe_load(f)
             self.face_room_map = data.get('face_room_map', {}) if data else {}
         except FileNotFoundError:
-            self.get_logger().warn(f'映射表不存在: {path}')
+            pass
 
-    # ──────────── 图像处理 ────────────
-
-    def on_image(self, msg):
+    def _process_frame(self):
         now = time.time()
-        if now - self.last_process_time < self.process_interval:
+        if now - self.last_process < self.process_interval:
             return
-        self.last_process_time = now
+        self.last_process = now
 
-        try:
-            frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
-        except Exception:
+        ret, frame = self.cap.read()
+        if not ret:
             return
 
-        # 缩小以加速
         small = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
         rgb = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
 
-        # 检测人脸位置
-        locations = _face_recog.face_locations(rgb)  # type: ignore[union-attr]
-        if not locations:
+        locs = _fr.face_locations(rgb)  # type: ignore
+        if not locs:
             return
+        encs = _fr.face_encodings(rgb, locs)  # type: ignore
 
-        # 编码检测到的人脸
-        encodings = _face_recog.face_encodings(rgb, locations)  # type: ignore[union-attr]
-
-        for encoding in encodings:
+        for enc in encs:
             if not self.known_encodings:
-                self.get_logger().warn('检测到人脸，但无已知人脸可对比')
-                continue
-
-            distances = _face_recog.face_distance(  # type: ignore[union-attr]
-                self.known_encodings, encoding)
-            best_idx = int(np.argmin(distances))
-            min_dist = distances[best_idx]
-
-            # 阈值 0.5：越低越像
-            if min_dist < 0.5:
-                name = self.known_names[best_idx]
+                return
+            dists = _fr.face_distance(self.known_encodings, enc)  # type: ignore
+            idx = int(np.argmin(dists))
+            if dists[idx] < 0.5:
+                name = self.known_names[idx]
                 if name != self.last_person:
                     self.last_person = name
                     room = self.face_room_map.get(name, '')
                     if room:
-                        self.get_logger().info(
-                            f'[识别] {name} → 教室 {room} (距离 {min_dist:.2f})')
-                        msg_out = String(data=room)
-                        self.pub_face_room.publish(msg_out)
+                        self.get_logger().info(f'[识别] {name} → {room}')
+                        self.pub_face_room.publish(String(data=room))
                     else:
                         self.get_logger().warn(
-                            f'[识别] {name}，但映射表中无对应教室')
-                break  # 一次只认一个人
+                            f'[识别] {name}，无映射')
+                break
+
+    def destroy_node(self):
+        self.cap.release()
+        super().destroy_node()
 
 
 def main(args=None):
     rclpy.init(args=args)
-    node = FaceRecognizer()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    node.destroy_node()
+    rclpy.spin(FaceRecognizer())
     rclpy.shutdown()
 
 
