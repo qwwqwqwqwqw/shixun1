@@ -66,10 +66,17 @@ class DoorplateDetector(Node):
 
         self.pub_result = self.create_publisher(String, '/doorplate_result', 10)
 
-        self.cap = cv2.VideoCapture(0)
-        if not self.cap.isOpened():
-            self.cap = cv2.VideoCapture(2)
-        assert self.cap.isOpened(), '摄像头不可用'
+        self.cap = None
+        for idx in [2, 4, 6, 0]:
+            cap = cv2.VideoCapture(idx)
+            if cap.isOpened():
+                ret, _ = cap.read()
+                if ret:
+                    self.cap = cap
+                    self.get_logger().info(f'摄像头 /dev/video{idx} 已就绪')
+                    break
+                cap.release()
+        assert self.cap is not None, '摄像头不可用 — 请检查 /dev/video*'
 
         self.process_interval = 1.0
         self.last_process = 0.0

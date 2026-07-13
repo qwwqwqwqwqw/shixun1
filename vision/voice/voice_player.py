@@ -25,7 +25,12 @@ class VoicePlayer(Node):
                                       'yahboomcar_ros2_ws/yahboomcar_ws/resource/audio')
 
         # ── 检测可用播放器 ──
-        self.wav_player = 'aplay'   # WAV 播放器（ALSA 自带）
+        try:
+            import pygame.mixer
+            pygame.mixer.init()
+            self._use_pygame = True
+        except Exception:
+            self._use_pygame = False
         self.mp3_player = self._find_mp3_player()
 
         # ── 状态 ──
@@ -40,7 +45,9 @@ class VoicePlayer(Node):
             Bool, '/arrival_confirmed', self.on_arrival, 10)
 
         self.get_logger().info(
-            f'voice_player 已启动 — WAV={self.wav_player}, MP3={self.mp3_player or "无"}')
+            f'voice_player 已启动 — '
+            f'pygame={"OK" if self._use_pygame else "无"}, '
+            f'MP3={self.mp3_player or "无"}')
 
     def _find_mp3_player(self):
         """查找可用的 MP3 播放器"""
@@ -75,12 +82,20 @@ class VoicePlayer(Node):
             self.get_logger().warn(f'文件不存在: {filename}')
             return
         self.get_logger().info(f'[语音] {filename}')
-        threading.Thread(
-            target=lambda: subprocess.run(
-                [self.wav_player, '-q', path],
-                capture_output=True),
-            daemon=True
-        ).start()
+        if self._use_pygame:
+            threading.Thread(
+                target=lambda: self._pygame_play(path), daemon=True
+            ).start()
+
+    def _pygame_play(self, path):
+        try:
+            import pygame.mixer
+            s = pygame.mixer.Sound(path)
+            s.play()
+            import time
+            time.sleep(s.get_length() + 0.3)
+        except Exception as e:
+            self.get_logger().warn(f'pygame 播放失败: {e}')
 
     def _start_bgm(self):
         if not self.mp3_player:

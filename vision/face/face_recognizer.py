@@ -33,11 +33,18 @@ class FaceRecognizer(Node):
 
         self.pub_face_room = self.create_publisher(String, '/face_room', 10)
 
-        # OpenCV 直读摄像头
-        self.cap = cv2.VideoCapture(0)
-        if not self.cap.isOpened():
-            self.cap = cv2.VideoCapture(2)
-        assert self.cap.isOpened(), '摄像头不可用'
+        # OpenCV 直读摄像头（Astra depth=/dev/video0, RGB 可能在其他索引）
+        self.cap = None
+        for idx in [2, 4, 6, 0]:
+            cap = cv2.VideoCapture(idx)
+            if cap.isOpened():
+                ret, _ = cap.read()
+                if ret:
+                    self.cap = cap
+                    self.get_logger().info(f'摄像头 /dev/video{idx} 已就绪')
+                    break
+                cap.release()
+        assert self.cap is not None, '摄像头不可用 — 请检查 /dev/video*'
 
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
