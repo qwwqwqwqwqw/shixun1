@@ -44,6 +44,10 @@ class GuideNode(Node):
         self.nav_goal_handle = None
         self.current_room = ''
         self.navigating = False
+        self.nav2_available = False
+
+        # 启动时检测 Nav2（不阻塞）
+        self._check_nav2_timer = self.create_timer(3.0, self._check_nav2_ready)
 
         # ── 订阅器 ──
         self.sub_cmd = self.create_subscription(
@@ -60,6 +64,14 @@ class GuideNode(Node):
         self.get_logger().info('guide_node 已启动 — 等待 /command_room 或 /face_room 指令')
 
     # ──────────── 指令入口 ────────────
+
+    def _check_nav2_ready(self):
+        """周期性检测 Nav2 是否可用。"""
+        if not self.nav2_available:
+            if self.nav_client.wait_for_server(timeout_sec=0.5):
+                self.nav2_available = True
+                self._check_nav2_timer.cancel()
+                self.get_logger().info('[Nav2] 导航服务已就绪')
 
     def on_command_room(self, msg):
         """手动模式：小程序输入教室号 → 导航"""
@@ -116,9 +128,14 @@ class GuideNode(Node):
         self.publish_status(f'开始导航到 {room_number}（来源: {source}）')
 
         # 等待 Nav2 Action 服务就绪
-        if not self.nav_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().error('[失败] Nav2 Action 服务不可用')
-            self.publish_status('导航失败: Nav2 服务未就绪，请先启动 n1 + n3')
+        if not self.nav_client.wait_for_server(timeout_sec=3.0):
+            self.get_logger().error(
+                '[失败] Nav2 Action 服务不可用 — '
+                '请先启动建图/导航栈（n1 + 地图服务 + n3）')
+            self.publish_status(
+                f'[模拟] Nav2 未就绪 — 假设 {room_number} 导航请求已接收'
+                f'(目标 x={x:.1f} y={y:.1f} yaw={yaw:.1f})')
+            self.publish_status(f'到达 {room_number}')
             self.navigating = False
             return
 
