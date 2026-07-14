@@ -23,7 +23,7 @@ YOLO_MODEL = 'doorplate_best.pt'
 YOLO_CONF = 0.3
 # classboard 和 electronic_board 做 OCR，classboard 优先
 TARGET_OCR_CLASSES = {'classboard', 'electronic_board'}
-DOORPLATE_CLASSES = {'doorplate', 'classboard', 'electronic_board'}
+DOORPLATE_CLASSES = {'classboard', 'electronic_board'}
 
 
 # ── EasyOCR ──
@@ -60,9 +60,10 @@ class YoloDetector:
 
     def __init__(self):
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        self.model = torch.hub.load('ultralytics/yolov5', 'custom',
+        self.model = torch.hub.load('/home/jetson/yolov5', 'custom',
                                      path=YOLO_MODEL, force_reload=False,
-                                     autoshape=False, verbose=False)
+                                     autoshape=False, verbose=False,
+                                     source='local')
         self.model = self.model.to(self.device).eval()
         self.stride = max(int(self.model.stride), 32)
         self.names = self.model.names
