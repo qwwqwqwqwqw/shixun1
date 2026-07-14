@@ -2,7 +2,7 @@
 App({
   globalData: {
     // 部署前改成小车实际 IPv4 地址，不能包含 ws:// 或 http://。
-    serverHost: '10.112.253.188',
+    serverHost: '10.143.0.188',
     serverPort: 9090,
     currentRoom: '',
     navStatus: '等待导航指令',

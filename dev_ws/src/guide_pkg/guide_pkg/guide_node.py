@@ -15,14 +15,14 @@
   - /navigate_to_pose (nav2_msgs/action/NavigateToPose) : 发送导航目标
 
 依赖：
-  - Nav2 基础节点已启动（n1 + n3）
+  - Nav2 和 AMCL 定位节点已启动（n1 + n3）
   - classrooms.yaml 中有教室坐标
 """
 import os
 import rclpy  # pyright: ignore[reportMissingImports]
 from rclpy.node import Node  # pyright: ignore[reportMissingImports]
 from rclpy.action import ActionClient  # pyright: ignore[reportMissingImports]
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped  # pyright: ignore[reportMissingImports]
+from geometry_msgs.msg import PoseWithCovarianceStamped  # pyright: ignore[reportMissingImports]
 from std_msgs.msg import String, Bool  # pyright: ignore[reportMissingImports]
 from nav2_msgs.action import NavigateToPose  # pyright: ignore[reportMissingImports]
 
@@ -49,6 +49,9 @@ class GuideNode(Node):
         self.nav2_available = False
         self.car_x = 0.0  # 小车当前位置
         self.car_y = 0.0
+        self.localized = False
+        self._initial_pose_attempts = 0
+        self._max_initial_pose_attempts = 3
 
         # 启动时检测 Nav2（不阻塞）
         self._check_nav2_timer = self.create_timer(3.0, self._check_nav2_ready)
@@ -62,7 +65,7 @@ class GuideNode(Node):
             Bool, '/navigation_cancel', self.on_cancel, 10)
         # 实时获取小车位置（用于自动选门）
         self.sub_amcl = self.create_subscription(
-            PoseStamped, '/amcl_pose', self.on_amcl_pose, 10)
+            PoseWithCovarianceStamped, '/amcl_pose', self.on_amcl_pose, 10)
 
         # ── 发布器 ──
         self.pub_status = self.create_publisher(
@@ -70,8 +73,8 @@ class GuideNode(Node):
         self.pub_initialpose = self.create_publisher(
             PoseWithCovarianceStamped, '/initialpose', 10)
 
-        # 延迟 1 秒自动设置初始位姿（等 AMCL 就绪）
-        self._init_pose_timer = self.create_timer(1.0, self._set_initial_pose)
+        # 等待 AMCL 订阅 /initialpose 后再发送；未收到定位时最多重试 3 次。
+        self._init_pose_timer = self.create_timer(2.0, self._set_initial_pose)
 
         self.get_logger().info('guide_node 已启动 — 等待 /command_room 或 /face_room 指令')
 
@@ -79,14 +82,37 @@ class GuideNode(Node):
 
     def on_amcl_pose(self, msg):
         """AMCL 定位更新，记录小车当前位置用于自动选门。"""
-        self.car_x = msg.pose.position.x
-        self.car_y = msg.pose.position.y
+        self.car_x = msg.pose.pose.position.x
+        self.car_y = msg.pose.pose.position.y
+        if not self.localized:
+            self.localized = True
+            self._init_pose_timer.cancel()
+            self.get_logger().info(
+                f'[定位] AMCL 已就绪 x={self.car_x:.2f} y={self.car_y:.2f}')
+            self.publish_status('定位已就绪')
 
     def _set_initial_pose(self):
-        """自动设置 AMCL 初始位姿，无需手动 2D Pose Estimate。"""
-        self._init_pose_timer.cancel()
-        if self.origin is None:
+        """AMCL 就绪后自动设置初始位姿，失败时有限次数重试。"""
+        if self.localized:
+            self._init_pose_timer.cancel()
             return
+        if self.origin is None:
+            self._init_pose_timer.cancel()
+            self.get_logger().warn('[初始位姿] classrooms.yaml 未配置 origin')
+            self.publish_status('定位未就绪: 未配置初始位姿')
+            return
+        if self.pub_initialpose.get_subscription_count() == 0:
+            self.get_logger().warn('[初始位姿] 等待 AMCL 订阅 /initialpose')
+            return
+        if self._initial_pose_attempts >= self._max_initial_pose_attempts:
+            self._init_pose_timer.cancel()
+            self.get_logger().error(
+                '[定位失败] 已发送初始位姿，但未收到 /amcl_pose；'
+                '请检查 AMCL、map→odom TF，并在 RViz 重新设置 2D Pose Estimate')
+            self.publish_status(
+                '定位未就绪: AMCL 无响应，请在 RViz 设置初始位姿')
+            return
+
         ox, oy, oyaw = self.origin['x'], self.origin['y'], self.origin.get('yaw', 0.0)
         msg = PoseWithCovarianceStamped()
         msg.header.frame_id = 'map'
@@ -103,8 +129,10 @@ class GuideNode(Node):
         msg.pose.covariance[7] = 0.25
         msg.pose.covariance[35] = 0.0685
         self.pub_initialpose.publish(msg)
+        self._initial_pose_attempts += 1
         self.get_logger().info(
-            f'[初始位姿] 已自动设置起点 x={ox:.2f} y={oy:.2f} yaw={oyaw:.2f}')
+            f'[初始位姿] 第 {self._initial_pose_attempts} 次发送 '
+            f'x={ox:.2f} y={oy:.2f} yaw={oyaw:.2f}')
 
     def _check_nav2_ready(self):
         """周期性检测 Nav2 是否可用。"""
@@ -145,6 +173,12 @@ class GuideNode(Node):
             self.get_logger().warn(f'[阻塞] 导航中，拒绝: {room_number}')
             self.publish_status(f'拒绝: 正在导航到 {self.current_room}，请先取消')
             return
+        if not self.localized:
+            self.get_logger().error(
+                '[导航拒绝] AMCL 定位未就绪，map→odom TF 可能不存在')
+            self.publish_status(
+                '导航失败: 定位未就绪，请先在 RViz 设置 2D Pose Estimate')
+            return
 
         # 查教室坐标（auto=自动选最近的门）
         coord = get_room_coord(self.classrooms, room_number,
@@ -169,10 +203,7 @@ class GuideNode(Node):
             self.get_logger().error(
                 '[失败] Nav2 Action 服务不可用 — '
                 '请先启动建图/导航栈（n1 + 地图服务 + n3）')
-            self.publish_status(
-                f'[模拟] Nav2 未就绪 — 假设 {room_number} 导航请求已接收'
-                f'(目标 x={x:.1f} y={y:.1f} yaw={yaw:.1f})')
-            self.publish_status(f'到达 {room_number}')
+            self.publish_status('导航失败: Nav2 Action 服务不可用')
             self.navigating = False
             return
 
@@ -206,6 +237,14 @@ class GuideNode(Node):
         if status == 4:  # SUCCEEDED
             self.get_logger().info(f'[到达] {self.current_room}')
             self.publish_status(f'到达 {self.current_room}')
+        elif status == 5:  # CANCELED
+            self.get_logger().info(f'[取消] {self.current_room}')
+            self.publish_status(f'导航已取消: {self.current_room}')
+        elif status == 6:  # ABORTED
+            self.get_logger().error(
+                f'[中止] {self.current_room}，请检查定位、TF、目标点和路径')
+            self.publish_status(
+                f'导航失败: {self.current_room}（Nav2 中止，请检查定位或路径）')
         else:
             self.get_logger().error(f'[失败] 状态码={status}')
             self.publish_status(f'导航失败: {self.current_room}（状态码 {status}）')
