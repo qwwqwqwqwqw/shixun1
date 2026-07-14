@@ -36,13 +36,13 @@ class FaceRecognizer(Node):
         self.declare_parameter('process_interval', 0.5)
 
         self.distance_threshold = float(
-            self.get_parameter('distance_threshold').value)
+            self.get_parameter('distance_threshold').value or 0.5)
         self.required_matches = max(
-            1, int(self.get_parameter('required_matches').value))
+            1, int(self.get_parameter('required_matches').value or 2))
         self.recognition_timeout = max(
-            1.0, float(self.get_parameter('recognition_timeout').value))
+            1.0, float(self.get_parameter('recognition_timeout').value or 15.0))
         self.process_interval = max(
-            0.1, float(self.get_parameter('process_interval').value))
+            0.1, float(self.get_parameter('process_interval').value or 0.5))
 
         self.pub_face_room = self.create_publisher(String, '/face_room', 10)
         self.pub_status = self.create_publisher(
@@ -177,7 +177,7 @@ class FaceRecognizer(Node):
         if self.cap is not None and self.cap.isOpened():
             return True
 
-        configured = int(self.get_parameter('camera_index').value)
+        configured = int(self.get_parameter('camera_index').value or -1)
         indices = [configured] if configured >= 0 else [2, 4, 6, 0]
         for index in indices:
             cap = cv2.VideoCapture(index)
