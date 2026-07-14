@@ -110,9 +110,12 @@ while time.time() - start_time < DURATION:
         encodings = face_recognition.face_encodings(rgb, locations)
         for encoding in encodings:
             distances = face_recognition.face_distance(known_encodings, encoding)
-            best_idx = int(min(range(len(distances)), key=distances.__getitem__))
-            if distances[best_idx] < 0.5:
-                name = known_names[best_idx]
+            # 找最近的两个，要求差距 > 0.1（避免模棱两可）
+            top2_idx = sorted(range(len(distances)), key=distances.__getitem__)[:2]
+            best_d = distances[top2_idx[0]]
+            second_d = distances[top2_idx[1]] if len(top2_idx) > 1 else float('inf')
+            if best_d < 0.4 and (second_d - best_d) > 0.1:
+                name = known_names[top2_idx[0]]
                 results[name] = results.get(name, 0) + 1
 
 # ── 4. 输出结果 ──

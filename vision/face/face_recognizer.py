@@ -35,7 +35,7 @@ class FaceRecognizer(Node):
         self.declare_parameter('camera_index', -1)
         self.declare_parameter('face_map_path', '')
         self.declare_parameter('known_faces_dir', '')
-        self.declare_parameter('distance_threshold', 0.5)
+        self.declare_parameter('distance_threshold', 0.4)
         self.declare_parameter('required_matches', 2)
         self.declare_parameter('recognition_timeout', 15.0)
         self.declare_parameter('process_interval', 0.5)
@@ -269,17 +269,23 @@ class FaceRecognizer(Node):
 
         best_name = ''
         best_distance = float('inf')
+        second_distance = float('inf')
         for enc in encs:
             dists = _fr.face_distance(self.known_encodings, enc)  # type: ignore
-            idx = int(np.argmin(dists))
-            distance = float(dists[idx])
-            if distance < best_distance:
-                best_distance = distance
-                best_name = self.known_names[idx]
+            # 找最近的两个
+            top2 = np.partition(dists, 1)[:2]
+            d1, d2 = float(top2[0]), float(top2[1])
+            if d1 < best_distance:
+                best_distance = d1
+                second_distance = d2
+                best_name = self.known_names[int(np.argmin(dists))]
 
-        if not best_name or best_distance >= self.distance_threshold:
+        # 两道防线：1) 距离小于阈值 2) 与第二名差距足够大
+        gap_ok = (second_distance - best_distance) > 0.1 if len(self.known_names) > 1 else True
+        if not best_name or best_distance >= self.distance_threshold or not gap_ok:
             self.candidate_name = ''
             self.candidate_matches = 0
+            reason = '未注册' if not gap_ok else '未注册人脸'
             self._publish_status(
                 'unknown', '检测到未注册人脸',
                 distance=round(best_distance, 3),
