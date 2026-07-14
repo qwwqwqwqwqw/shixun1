@@ -1,10 +1,10 @@
 #!/bin/bash
 # sync_to_car.sh — 一键同步全部代码到小车
-# 用法: bash sync_to_car.sh [小车IP] (默认 10.112.253.188)
+# 用法: bash sync_to_car.sh [小车IP] (默认 172.29.8.188)
 
 set -e
 
-CAR_IP="${1:-10.112.253.188}"
+CAR_IP="${1:-172.29.8.188}"
 CAR_USER="jetson"
 CAR_WS="/home/jetson/code/yahboomcar_ws"
 LOCAL_DIR="$(cd "$(dirname "$0")" && pwd)"
