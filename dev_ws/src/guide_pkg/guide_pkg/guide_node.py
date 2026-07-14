@@ -22,7 +22,7 @@ import os
 import rclpy  # pyright: ignore[reportMissingImports]
 from rclpy.node import Node  # pyright: ignore[reportMissingImports]
 from rclpy.action import ActionClient  # pyright: ignore[reportMissingImports]
-from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped  # pyright: ignore[reportMissingImports]
+from geometry_msgs.msg import PoseWithCovarianceStamped  # pyright: ignore[reportMissingImports]
 from std_msgs.msg import String, Bool  # pyright: ignore[reportMissingImports]
 from nav2_msgs.action import NavigateToPose  # pyright: ignore[reportMissingImports]
 
@@ -62,7 +62,7 @@ class GuideNode(Node):
             Bool, '/navigation_cancel', self.on_cancel, 10)
         # 实时获取小车位置（用于自动选门）
         self.sub_amcl = self.create_subscription(
-            PoseStamped, '/amcl_pose', self.on_amcl_pose, 10)
+            PoseWithCovarianceStamped, '/amcl_pose', self.on_amcl_pose, 10)
 
         # ── 发布器 ──
         self.pub_status = self.create_publisher(
@@ -79,8 +79,8 @@ class GuideNode(Node):
 
     def on_amcl_pose(self, msg):
         """AMCL 定位更新，记录小车当前位置用于自动选门。"""
-        self.car_x = msg.pose.position.x
-        self.car_y = msg.pose.position.y
+        self.car_x = msg.pose.pose.position.x
+        self.car_y = msg.pose.pose.position.y
 
     def _set_initial_pose(self):
         """自动设置 AMCL 初始位姿，无需手动 2D Pose Estimate。"""
