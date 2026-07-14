@@ -41,12 +41,34 @@ pip install easyocr
 pip install opencv-python
 ```
 
-### 5. 验证安装
+### 5. 人脸识别依赖（face_recognition）
+
+**如果在系统 Python 3.10 中直接安装**（不使用虚拟环境，已验证可行）：
+
+```powershell
+# 0. 降级 setuptools（新版移除了 pkg_resources，face_recognition_models 依赖它）
+pip install "setuptools<70"
+
+# 1. 安装预编译 dlib（避免 C++ 编译失败）
+pip install dlib-bin
+
+# 2. 安装 face_recognition（跳过 dlib 编译）
+pip install face_recognition --no-deps
+
+# 3. 手动安装其余依赖
+pip install face_recognition_models numpy Pillow Click
+
+# 4. 如果 face_recognition_models 报错，用 git 方式安装
+pip install git+https://github.com/ageitgey/face_recognition_models
+```
+
+### 6. 验证安装
 
 ```powershell
 python -c "import torch; print('torch', torch.__version__)"
 python -c "import easyocr; print('easyocr OK')"
 python -c "import cv2; print('opencv', cv2.__version__)"
+python -c "import face_recognition; print('face_recognition OK')"
 ```
 
 ---

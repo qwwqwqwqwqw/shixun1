@@ -2,9 +2,14 @@
 
 订阅 /face_mode_control 的 start/stop，识别成功后向 /face_room 发布教室号，
 并通过 /face_recognition_status 发布 JSON 状态。
+
+人脸特征缓存:
+    首次扫描照片后生成 face_encodings.pkl，后续启动直接加载缓存，
+    无需重复编码。照片有增删时会自动重建缓存。
 """
 import json
 import os
+import pickle
 import time
 import rclpy  # pyright: ignore[reportMissingImports]
 from rclpy.node import Node  # pyright: ignore[reportMissingImports]
@@ -87,6 +92,27 @@ class FaceRecognizer(Node):
             self.get_logger().error(f'人脸库目录不存在: {base}')
             return
 
+        cache_path = os.path.join(base, 'face_encodings.pkl')
+
+        # ── 尝试从缓存加载（cache 比所有源照片新则有效） ──
+        if os.path.isfile(cache_path):
+            cache_mtime = os.path.getmtime(cache_path)
+            photos = [os.path.join(base, f) for f in os.listdir(base)
+                      if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+            if photos and all(os.path.getmtime(p) <= cache_mtime for p in photos):
+                try:
+                    with open(cache_path, 'rb') as f:
+                        data = pickle.load(f)
+                    self.known_encodings = data['encodings']
+                    self.known_names = data['names']
+                    self.get_logger().info(
+                        f'从缓存加载 {len(self.known_names)} 张人脸: {cache_path}')
+                    return
+                except Exception as exc:
+                    self.get_logger().warn(f'缓存加载失败，重新扫描: {exc}')
+
+        # ── 扫描照片并编码 ──
+        self.get_logger().info('扫描 known_faces/ 照片并提取特征...')
         for fname in sorted(os.listdir(base)):
             if not fname.lower().endswith(('.jpg', '.jpeg', '.png')):
                 continue
@@ -101,6 +127,19 @@ class FaceRecognizer(Node):
                     self.get_logger().warn(f'注册照片未检测到人脸: {fname}')
             except Exception as exc:
                 self.get_logger().error(f'注册照片加载失败 {fname}: {exc}')
+
+        # ── 保存缓存 ──
+        if self.known_encodings:
+            try:
+                with open(cache_path, 'wb') as f:
+                    pickle.dump({
+                        'encodings': self.known_encodings,
+                        'names': self.known_names,
+                    }, f)
+                self.get_logger().info(
+                    f'人脸特征缓存已保存: {cache_path} ({len(self.known_names)} 张)')
+            except Exception as exc:
+                self.get_logger().warn(f'缓存保存失败: {exc}')
 
     def _load_face_room_map(self):
         configured = str(self.get_parameter('face_map_path').value).strip()

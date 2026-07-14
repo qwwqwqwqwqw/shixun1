@@ -1,36 +1,63 @@
 """人脸识别测试 — 摄像头实时模式。
 
 使用 dlib 预训练模型，比对 known_faces/ 目录下的人脸照片。
-运行 5 秒，输出识别结果。
+首次运行时提取特征并缓存，后续秒启动。
 """
 import face_recognition  # pyright: ignore[reportMissingImports]
 import cv2  # pyright: ignore[reportMissingImports]
 import os
+import pickle
 import time
 
 print("=" * 50)
 print("  人脸识别测试 (摄像头模式)")
 print("=" * 50)
 
-# ── 1. 加载已知人脸 ──
+# ── 1. 加载已知人脸（缓存优先） ──
 FACE_DIR = os.path.join(os.path.dirname(__file__), "known_faces")
+CACHE_PATH = os.path.join(FACE_DIR, "face_encodings.pkl")
 known_encodings = []
 known_names = []
 
 print(f"\n[加载] 人脸库: {FACE_DIR}")
-for fname in os.listdir(FACE_DIR):
-    if not fname.lower().endswith(('.jpg', '.jpeg', '.png')):
-        continue
-    name = os.path.splitext(fname)[0]
-    path = os.path.join(FACE_DIR, fname)
-    img = face_recognition.load_image_file(path)
-    encodings = face_recognition.face_encodings(img)
-    if encodings:
-        known_encodings.append(encodings[0])
-        known_names.append(name)
-        print(f"   ✅ {name}")
-    else:
-        print(f"   ❌ {fname} — 未检测到人脸")
+
+# 尝试从缓存加载
+if os.path.isfile(CACHE_PATH):
+    cache_mtime = os.path.getmtime(CACHE_PATH)
+    photos = [os.path.join(FACE_DIR, f) for f in os.listdir(FACE_DIR)
+              if f.lower().endswith(('.jpg', '.jpeg', '.png'))]
+    if photos and all(os.path.getmtime(p) <= cache_mtime for p in photos):
+        try:
+            with open(CACHE_PATH, 'rb') as f:
+                data = pickle.load(f)
+            known_encodings = data['encodings']
+            known_names = data['names']
+            print(f"   从缓存加载 ({len(known_names)} 张人脸) → {CACHE_PATH}")
+        except Exception as e:
+            print(f"   ⚠️ 缓存无效，重新扫描: {e}")
+
+# 缓存不可用 → 扫描照片
+if not known_names:
+    print("   扫描照片并提取特征...")
+    for fname in sorted(os.listdir(FACE_DIR)):
+        if not fname.lower().endswith(('.jpg', '.jpeg', '.png')):
+            continue
+        name = os.path.splitext(fname)[0]
+        path = os.path.join(FACE_DIR, fname)
+        img = face_recognition.load_image_file(path)
+        encodings = face_recognition.face_encodings(img)
+        if encodings:
+            known_encodings.append(encodings[0])
+            known_names.append(name)
+            print(f"   ✅ {name}")
+        else:
+            print(f"   ❌ {fname} — 未检测到人脸")
+
+    # 保存缓存
+    if known_encodings:
+        with open(CACHE_PATH, 'wb') as f:
+            pickle.dump({'encodings': known_encodings, 'names': known_names}, f)
+        print(f"   缓存已保存: {CACHE_PATH}")
 
 if not known_names:
     print("\n❌ 未加载到任何人脸，请先放入照片到 known_faces/")
@@ -38,6 +65,7 @@ if not known_names:
 
 # ── 2. 打开摄像头 ──
 print("\n[相机] 正在打开摄像头...")
+os.environ["OPENCV_LOG_LEVEL"] = "FATAL"  # 静默摄像头索引报错
 cap = None
 for camera_index in [2, 4, 6, 0]:
     candidate = cv2.VideoCapture(camera_index)
@@ -71,13 +99,6 @@ while time.time() - start_time < DURATION:
 
     frame_count += 1
     if frame_count % PROCESS_EVERY_N_FRAMES != 0:
-        # 显示实时画面（带倒计时）
-        remaining = DURATION - (time.time() - start_time)
-        cv2.putText(frame, f"识别中... {remaining:.1f}s",
-                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        cv2.imshow("人脸识别测试 — 按 Q 提前退出", frame)
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
         continue
 
     # 缩小区理加速
@@ -94,15 +115,8 @@ while time.time() - start_time < DURATION:
                 name = known_names[best_idx]
                 results[name] = results.get(name, 0) + 1
 
-    remaining = DURATION - (time.time() - start_time)
-    cv2.putText(frame, f"识别中... {remaining:.1f}s",
-                (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-    cv2.imshow("人脸识别测试 — 按 Q 提前退出", frame)
-    cv2.waitKey(1)
-
 # ── 4. 输出结果 ──
 cap.release()
-cv2.destroyAllWindows()
 
 print("\n" + "=" * 50)
 print(f"  识别结束（共处理 {frame_count} 帧）")
