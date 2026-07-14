@@ -26,7 +26,7 @@ from geometry_msgs.msg import PoseWithCovarianceStamped  # pyright: ignore[repor
 from std_msgs.msg import String, Bool  # pyright: ignore[reportMissingImports]
 from nav2_msgs.action import NavigateToPose  # pyright: ignore[reportMissingImports]
 
-from guide_pkg.utils import load_classrooms, make_pose_stamped
+from guide_pkg.utils import load_classrooms, get_room_coord, make_pose_stamped
 
 
 class GuideNode(Node):
@@ -135,14 +135,13 @@ class GuideNode(Node):
             self.publish_status(f'拒绝: 正在导航到 {self.current_room}，请先取消')
             return
 
-        # 查教室坐标
-        if room_number not in self.classrooms:
+        # 查教室坐标（兼容 front/back 新格式）
+        coord = get_room_coord(self.classrooms, room_number, door='front')
+        if coord is None:
             self.get_logger().error(f'[失败] 未知教室: {room_number}')
             self.publish_status(f'导航失败: 教室 {room_number} 未找到坐标')
             return
-
-        coord = self.classrooms[room_number]
-        x, y, yaw = coord['x'], coord['y'], coord.get('yaw', 0.0)
+        x, y, yaw = coord
 
         # 构造导航目标
         goal_pose = make_pose_stamped('map', x, y, yaw)
