@@ -33,18 +33,22 @@ class AiServerNode(Node):
         # ── 发布器 ──
         self.pub_command_room = self.create_publisher(
             String, '/command_room', 10)
-        self.pub_face_room = self.create_publisher(
-            String, '/face_room', 10)
+        self.pub_face_control = self.create_publisher(
+            String, '/face_mode_control', 10)
         self.pub_app_joystick = self.create_publisher(
             Twist, '/app_joystick', 10)
         self.pub_cancel = self.create_publisher(
             Bool, '/navigation_cancel', 10)
+        self.pub_client_event = self.create_publisher(
+            String, '/client_event', 10)
 
         # ── 订阅器 ──
         self.sub_status = self.create_subscription(
             String, '/navigation_status', self.on_nav_status, 10)
         self.sub_arrival = self.create_subscription(
             Bool, '/arrival_confirmed', self.on_arrival, 10)
+        self.sub_face_status = self.create_subscription(
+            String, '/face_recognition_status', self.on_face_status, 10)
 
         # ── TCP 客户端管理 ──
         self._tcp_clients = []  # type: list[socket.socket]
@@ -64,6 +68,17 @@ class AiServerNode(Node):
     def on_arrival(self, msg):
         self.get_logger().info(f'[到达确认] {msg.data}')
         self._broadcast({'type': 'arrival', 'message': msg.data})
+
+    def on_face_status(self, msg):
+        """把视觉节点的 JSON 状态转发给小程序。"""
+        try:
+            payload = json.loads(msg.data)
+            if not isinstance(payload, dict):
+                raise ValueError('状态不是 JSON 对象')
+        except (json.JSONDecodeError, ValueError):
+            payload = {'status': 'info', 'message': msg.data}
+        payload['type'] = 'face_status'
+        self._broadcast(payload)
 
     # ──────────── TCP 广播 ────────────
 
@@ -94,6 +109,7 @@ class AiServerNode(Node):
             try:
                 conn, addr = self.server_sock.accept()
                 self.get_logger().info(f'[连接] 小程序 {addr[0]}:{addr[1]}')
+                self.pub_client_event.publish(String(data='connected'))
                 with self._tcp_lock:
                     self._tcp_clients.append(conn)
                 threading.Thread(
@@ -119,8 +135,10 @@ class AiServerNode(Node):
             pass
         finally:
             self.get_logger().info(f'[断开] {addr[0]}:{addr[1]}')
+            self.pub_client_event.publish(String(data='disconnected'))
             # TCP 断开时立即发布零速度，避免小车保持最后一条运动指令。
             self.pub_app_joystick.publish(Twist())
+            self.pub_face_control.publish(String(data='stop'))
             with self._tcp_lock:
                 if conn in self._tcp_clients:
                     self._tcp_clients.remove(conn)
@@ -164,10 +182,28 @@ class AiServerNode(Node):
             self._broadcast({'type': 'ack', 'command': 'cancel', 'status': 'accepted'})
 
         elif msg_type == 'face_mode':
-            action = cmd.get('action', 'start')
+            action = str(cmd.get('action', 'start')).strip().lower()
+            if action not in ('start', 'stop'):
+                self._broadcast({
+                    'type': 'error',
+                    'message': f'不支持的人脸模式指令: {action}',
+                })
+                return
+            if (action == 'start' and
+                    self.pub_face_control.get_subscription_count() == 0):
+                self._broadcast({
+                    'type': 'error',
+                    'message': '人脸识别节点未启动或尚未接入 ROS2',
+                })
+                return
             self.get_logger().info(f'[人脸] {action}')
-            msg = String(data=action)
-            self.pub_face_room.publish(msg)
+            self.pub_face_control.publish(String(data=action))
+            self._broadcast({
+                'type': 'ack',
+                'command': 'face_mode',
+                'action': action,
+                'status': 'accepted',
+            })
 
         elif msg_type == 'ping':
             self._broadcast({'type': 'pong', 'message': 'ok'})
@@ -190,6 +226,7 @@ class AiServerNode(Node):
 
     def destroy_node(self):
         self.pub_app_joystick.publish(Twist())
+        self.pub_face_control.publish(String(data='stop'))
         with self._tcp_lock:
             for s in self._tcp_clients:
                 try:

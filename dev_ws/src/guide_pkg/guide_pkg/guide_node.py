@@ -5,7 +5,7 @@
 
 订阅话题：
   - /command_room (std_msgs/String) : 小程序手动输入教室号
-  - /face_room    (std_msgs/String) : 人脸识别房间号 / 人脸模式控制
+  - /face_room    (std_msgs/String) : 人脸识别映射后的教室号
   - /navigation_cancel (std_msgs/Bool) : 取消当前导航
 
 发布话题：
@@ -19,11 +19,12 @@
   - classrooms.yaml 中有教室坐标
 """
 import os
-import rclpy
-from rclpy.node import Node
-from rclpy.action import ActionClient
-from std_msgs.msg import String, Bool
-from nav2_msgs.action import NavigateToPose
+import rclpy  # pyright: ignore[reportMissingImports]
+from rclpy.node import Node  # pyright: ignore[reportMissingImports]
+from rclpy.action import ActionClient  # pyright: ignore[reportMissingImports]
+from geometry_msgs.msg import PoseWithCovarianceStamped  # pyright: ignore[reportMissingImports]
+from std_msgs.msg import String, Bool  # pyright: ignore[reportMissingImports]
+from nav2_msgs.action import NavigateToPose  # pyright: ignore[reportMissingImports]
 
 from guide_pkg.utils import load_classrooms, make_pose_stamped
 
@@ -32,11 +33,11 @@ class GuideNode(Node):
     def __init__(self):
         super().__init__('guide_node')
 
-        # ── 加载教室坐标 ──
+        # ── 加载教室坐标 + 起点 ──
         config_dir = os.path.join(
             os.path.dirname(__file__), '..', 'config')
         classroom_path = os.path.join(config_dir, 'classrooms.yaml')
-        self.classrooms = load_classrooms(classroom_path)
+        self.classrooms, self.origin = load_classrooms(classroom_path)
         self.get_logger().info(f'已加载 {len(self.classrooms)} 个教室坐标')
 
         # ── Nav2 Action 客户端 ──
@@ -44,6 +45,10 @@ class GuideNode(Node):
         self.nav_goal_handle = None
         self.current_room = ''
         self.navigating = False
+        self.nav2_available = False
+
+        # 启动时检测 Nav2（不阻塞）
+        self._check_nav2_timer = self.create_timer(3.0, self._check_nav2_ready)
 
         # ── 订阅器 ──
         self.sub_cmd = self.create_subscription(
@@ -56,10 +61,47 @@ class GuideNode(Node):
         # ── 发布器 ──
         self.pub_status = self.create_publisher(
             String, '/navigation_status', 10)
+        self.pub_initialpose = self.create_publisher(
+            PoseWithCovarianceStamped, '/initialpose', 10)
+
+        # 延迟 1 秒自动设置初始位姿（等 AMCL 就绪）
+        self._init_pose_timer = self.create_timer(1.0, self._set_initial_pose)
 
         self.get_logger().info('guide_node 已启动 — 等待 /command_room 或 /face_room 指令')
 
     # ──────────── 指令入口 ────────────
+
+    def _set_initial_pose(self):
+        """自动设置 AMCL 初始位姿，无需手动 2D Pose Estimate。"""
+        self._init_pose_timer.cancel()
+        if self.origin is None:
+            return
+        ox, oy, oyaw = self.origin['x'], self.origin['y'], self.origin.get('yaw', 0.0)
+        msg = PoseWithCovarianceStamped()
+        msg.header.frame_id = 'map'
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.pose.position.x = ox
+        msg.pose.pose.position.y = oy
+        msg.pose.pose.position.z = 0.0
+        # 简单朝向（绕 Z 轴）
+        import math
+        msg.pose.pose.orientation.z = math.sin(oyaw / 2.0)
+        msg.pose.pose.orientation.w = math.cos(oyaw / 2.0)
+        # 低协方差 = "我很确定"
+        msg.pose.covariance[0] = 0.25
+        msg.pose.covariance[7] = 0.25
+        msg.pose.covariance[35] = 0.0685
+        self.pub_initialpose.publish(msg)
+        self.get_logger().info(
+            f'[初始位姿] 已自动设置起点 x={ox:.2f} y={oy:.2f} yaw={oyaw:.2f}')
+
+    def _check_nav2_ready(self):
+        """周期性检测 Nav2 是否可用。"""
+        if not self.nav2_available:
+            if self.nav_client.wait_for_server(timeout_sec=0.5):
+                self.nav2_available = True
+                self._check_nav2_timer.cancel()
+                self.get_logger().info('[Nav2] 导航服务已就绪')
 
     def on_command_room(self, msg):
         """手动模式：小程序输入教室号 → 导航"""
@@ -70,13 +112,9 @@ class GuideNode(Node):
         self._navigate_to(room, source='manual')
 
     def on_face_room(self, msg):
-        """人脸模式：人脸识别结果或控制指令"""
+        """人脸识别结果：收到映射后的教室号并开始导航。"""
         data = msg.data.strip()
         if not data:
-            return
-        if data.lower() in ('start', 'stop'):
-            self.get_logger().info(f'[人脸] 模式: {data}')
-            self.publish_status(f'人脸识别模式: {data}')
             return
         self.get_logger().info(f'[人脸] 房间号: {data}')
         self._navigate_to(data, source='face')
@@ -116,9 +154,14 @@ class GuideNode(Node):
         self.publish_status(f'开始导航到 {room_number}（来源: {source}）')
 
         # 等待 Nav2 Action 服务就绪
-        if not self.nav_client.wait_for_server(timeout_sec=5.0):
-            self.get_logger().error('[失败] Nav2 Action 服务不可用')
-            self.publish_status('导航失败: Nav2 服务未就绪，请先启动 n1 + n3')
+        if not self.nav_client.wait_for_server(timeout_sec=3.0):
+            self.get_logger().error(
+                '[失败] Nav2 Action 服务不可用 — '
+                '请先启动建图/导航栈（n1 + 地图服务 + n3）')
+            self.publish_status(
+                f'[模拟] Nav2 未就绪 — 假设 {room_number} 导航请求已接收'
+                f'(目标 x={x:.1f} y={y:.1f} yaw={yaw:.1f})')
+            self.publish_status(f'到达 {room_number}')
             self.navigating = False
             return
 

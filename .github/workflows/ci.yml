@@ -59,29 +59,44 @@ jobs:
       - name: 准备 ROS2 环境并编译
         run: |
           apt-get update && apt-get install -y python3-colcon-common-extensions
-          . /opt/ros/humble/setup.bash
+          . /opt/ros/humble/setup.sh
           cd dev_ws
           colcon build --packages-select guide_pkg aiserver_pkg
       - name: 验证编译产物
         run: |
-          . /opt/ros/humble/setup.bash
-          . dev_ws/install/setup.bash
+          . /opt/ros/humble/setup.sh
+          . dev_ws/install/setup.sh
           ros2 pkg list | grep -E "guide_pkg|aiserver_pkg" && echo "BUILD OK"
 
+  # ---------- 第 3 步：自动部署到小车（需先在 GitHub 设置 Secrets） ----------
   # ---------- 第 3 步：自动部署到小车（需先在 GitHub 设置 Secrets） ----------
   deploy:
     name: 自动部署到小车 (Deploy)
     runs-on: ubuntu-latest
     needs: build
-    # 只有 push 到 master 分支、且配置了 Secrets 时才运行；没配置就自动跳过
+    # 这里只保留分支判断，不在这一层判断 secrets
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # 将密钥映射为当前任务的环境变量
+    env:
+      CAR_KEY: ${{ secrets.CAR_SSH_KEY }}
     steps:
+      # 如果 CAR_KEY 不为空，才会执行后续的 checkout 和部署
       - uses: actions/checkout@v4
+        if: env.CAR_KEY != ''
+
       - name: 配置 SSH 免密登录
+        if: env.CAR_KEY != ''
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.CAR_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.CAR_HOST }}" >> ~/.ssh/known_hosts
+
       - name: 执行部署脚本
+        if: env.CAR_KEY != ''
         run: bash scripts/deploy.sh "${{ secrets.CAR_HOST }}"
+
+      # 如果 CAR_KEY 为空，则只执行这一步，打印一条提示并绿灯通过
+      - name: 提示已跳过部署
+        if: env.CAR_KEY == ''
+        run: echo "未配置小车密钥，已安全跳过部署步骤"

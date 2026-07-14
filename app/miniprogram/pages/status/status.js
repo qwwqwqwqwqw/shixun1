@@ -9,6 +9,9 @@ Page({
     connected: false,
     positionText: '暂无位置数据',
     arrivalConfirmed: false,
+    faceMode: false,
+    faceStatus: '',
+    recognizedName: '',
   },
 
   onLoad() {
@@ -21,6 +24,9 @@ Page({
         connected: state.connected,
         positionText: this.formatPose(state.robotPose),
         arrivalConfirmed: state.arrivalConfirmed,
+        faceMode: state.faceMode,
+        faceStatus: state.faceStatus,
+        recognizedName: state.recognizedName,
       });
     });
   },
@@ -57,13 +63,19 @@ Page({
   },
 
   cancelNavigation() {
+    const recognizing = this.data.faceMode;
     wx.showModal({
-      title: '取消导航',
-      content: '确定要停止当前导航任务吗？',
+      title: recognizing ? '停止识别' : '取消导航',
+      content: recognizing
+        ? '确定要停止本次人脸识别吗？'
+        : '确定要停止当前导航任务吗？',
       confirmColor: '#e64340',
       success: (result) => {
         if (result.confirm) {
-          app.cancelNavigation();
+          app.sendFaceMode('stop');
+          if (!recognizing) {
+            app.cancelNavigation();
+          }
         }
       },
     });

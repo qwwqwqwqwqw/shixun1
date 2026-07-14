@@ -58,10 +58,13 @@ Page({
   },
 
   startFaceRecognition() {
-    wx.showToast({
-      title: '人脸识别为第二版功能',
-      icon: 'none',
-    });
+    if (!this.data.connected) {
+      wx.showToast({ title: '请先连接小车', icon: 'none' });
+      return;
+    }
+    this.stopManualControl();
+    app.sendFaceMode('start');
+    wx.navigateTo({ url: '/pages/status/status?source=face' });
   },
 
   startManualControl(e) {
@@ -72,10 +75,12 @@ Page({
 
     const action = e.currentTarget.dataset.action;
     const commands = {
-      forward: { vx: 0.2, wz: 0 },
-      backward: { vx: -0.2, wz: 0 },
-      left: { vx: 0, wz: 0.6 },
-      right: { vx: 0, wz: -0.6 },
+      forward: { vx: 0.2, vy: 0, wz: 0 },
+      backward: { vx: -0.2, vy: 0, wz: 0 },
+      shiftLeft: { vx: 0, vy: 0.2, wz: 0 },
+      shiftRight: { vx: 0, vy: -0.2, wz: 0 },
+      turnLeft: { vx: 0, vy: 0, wz: 0.6 },
+      turnRight: { vx: 0, vy: 0, wz: -0.6 },
     };
     const command = commands[action];
     if (!command) {
@@ -85,6 +90,9 @@ Page({
     this.stopManualControl();
     this.setData({ manualActive: action });
     this.manualCommand = command;
+    if (app.globalData.faceMode) {
+      app.sendFaceMode('stop');
+    }
     app.sendMessage({ type: 'cancel' });
     this.sendManualCommand();
     this.manualTimer = setInterval(() => {
@@ -98,7 +106,11 @@ Page({
 
   sendManualCommand() {
     if (this.manualCommand) {
-      app.sendJoystick(this.manualCommand.vx, this.manualCommand.wz);
+      app.sendJoystick(
+        this.manualCommand.vx,
+        this.manualCommand.vy,
+        this.manualCommand.wz,
+      );
     }
   },
 
@@ -108,7 +120,7 @@ Page({
       this.manualTimer = null;
     }
     if (this.manualCommand && app.globalData.connected) {
-      app.sendJoystick(0, 0);
+      app.sendJoystick(0, 0, 0);
     }
     this.manualCommand = null;
     if (this.data.manualActive) {
@@ -119,7 +131,7 @@ Page({
   emergencyStop() {
     this.stopManualControl();
     if (app.globalData.connected) {
-      app.sendJoystick(0, 0);
+      app.sendJoystick(0, 0, 0);
     }
   },
 });

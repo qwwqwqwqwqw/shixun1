@@ -7,12 +7,9 @@
 # 导航
 pyyaml>=6.0
 
-# 视觉识别 — 门牌 (YOLOv5 + OCR)
-torch>=1.12.0
-torchvision>=0.13.0
-ultralytics>=8.0.0
+# 视觉识别 — 门牌 (EasyOCR 预训练，无需额外训练)
+easyocr>=1.7.0
 opencv-python>=4.5.0
-pillow>=9.0.0
 numpy>=1.21.0
 
 # 视觉识别 — 人脸
