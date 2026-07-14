@@ -21,8 +21,12 @@ def load_classrooms(yaml_path):
     return classrooms, origin
 
 
-def get_room_coord(classrooms, room_number, door='front'):
-    """获取教室坐标，兼容 front/back 新格式和 x/y/yaw 旧格式。
+def get_room_coord(classrooms, room_number, door='auto', car_pos=(0.0, 0.0)):
+    """获取教室坐标，自动选更近的门。
+    
+    door='auto'  → 自动选离 car_pos 最近的门
+    door='front' → 前门
+    door='back'  → 后门
     
     新格式: {room: {front: {x,y,yaw}, back: {x,y,yaw}}}
     旧格式: {room: {x, y, yaw}}
@@ -32,16 +36,28 @@ def get_room_coord(classrooms, room_number, door='front'):
     if entry is None:
         return None
 
-    # 新格式：有 front/back 子字典
-    if 'front' in entry or 'back' in entry:
-        door_entry = entry.get(door, entry.get('front', {}))
-        if not door_entry:
-            return None
-        return (door_entry['x'], door_entry['y'], door_entry.get('yaw', 0.0))
-
     # 旧格式：直接 x/y/yaw
     if 'x' in entry:
         return (entry['x'], entry['y'], entry.get('yaw', 0.0))
+
+    # 新格式：有 front/back 子字典
+    if 'front' in entry or 'back' in entry:
+        # 只有一个门时直接用
+        available = [k for k in ('front', 'back') if k in entry]
+        if not available:
+            return None
+        if len(available) == 1 or door in ('front', 'back'):
+            chosen = door if door in entry else available[0]
+        else:
+            # auto: 选离小车更近的门
+            import math
+            cx, cy = car_pos if car_pos else (0.0, 0.0)
+            def dist(k):
+                d = entry[k]
+                return math.hypot(d['x'] - cx, d['y'] - cy)
+            chosen = min(available, key=dist)
+        door_entry = entry[chosen]
+        return (door_entry['x'], door_entry['y'], door_entry.get('yaw', 0.0))
 
     return None
 

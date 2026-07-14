@@ -22,9 +22,10 @@ import os
 import rclpy  # pyright: ignore[reportMissingImports]
 from rclpy.node import Node  # pyright: ignore[reportMissingImports]
 from rclpy.action import ActionClient  # pyright: ignore[reportMissingImports]
-from geometry_msgs.msg import PoseWithCovarianceStamped  # pyright: ignore[reportMissingImports]
+from geometry_msgs.msg import PoseWithCovarianceStamped, PoseStamped  # pyright: ignore[reportMissingImports]
 from std_msgs.msg import String, Bool  # pyright: ignore[reportMissingImports]
 from nav2_msgs.action import NavigateToPose  # pyright: ignore[reportMissingImports]
+
 
 from guide_pkg.utils import load_classrooms, get_room_coord, make_pose_stamped
 
@@ -46,6 +47,8 @@ class GuideNode(Node):
         self.current_room = ''
         self.navigating = False
         self.nav2_available = False
+        self.car_x = 0.0  # 小车当前位置
+        self.car_y = 0.0
 
         # 启动时检测 Nav2（不阻塞）
         self._check_nav2_timer = self.create_timer(3.0, self._check_nav2_ready)
@@ -57,6 +60,9 @@ class GuideNode(Node):
             String, '/face_room', self.on_face_room, 10)
         self.sub_cancel = self.create_subscription(
             Bool, '/navigation_cancel', self.on_cancel, 10)
+        # 实时获取小车位置（用于自动选门）
+        self.sub_amcl = self.create_subscription(
+            PoseStamped, '/amcl_pose', self.on_amcl_pose, 10)
 
         # ── 发布器 ──
         self.pub_status = self.create_publisher(
@@ -70,6 +76,11 @@ class GuideNode(Node):
         self.get_logger().info('guide_node 已启动 — 等待 /command_room 或 /face_room 指令')
 
     # ──────────── 指令入口 ────────────
+
+    def on_amcl_pose(self, msg):
+        """AMCL 定位更新，记录小车当前位置用于自动选门。"""
+        self.car_x = msg.pose.position.x
+        self.car_y = msg.pose.position.y
 
     def _set_initial_pose(self):
         """自动设置 AMCL 初始位姿，无需手动 2D Pose Estimate。"""
@@ -135,8 +146,9 @@ class GuideNode(Node):
             self.publish_status(f'拒绝: 正在导航到 {self.current_room}，请先取消')
             return
 
-        # 查教室坐标（兼容 front/back 新格式）
-        coord = get_room_coord(self.classrooms, room_number, door='front')
+        # 查教室坐标（auto=自动选最近的门）
+        coord = get_room_coord(self.classrooms, room_number,
+                               door='auto', car_pos=(self.car_x, self.car_y))
         if coord is None:
             self.get_logger().error(f'[失败] 未知教室: {room_number}')
             self.publish_status(f'导航失败: 教室 {room_number} 未找到坐标')
