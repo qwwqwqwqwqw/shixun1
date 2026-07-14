@@ -4,7 +4,7 @@
 
 set -e
 
-CAR_IP="${1:-172.29.8.188}"
+CAR_IP="${1:-10.143.0.188}"
 CAR_USER="jetson"
 CAR_WS="/home/jetson/code/yahboomcar_ws"
 LOCAL_DIR="$(cd "$(dirname "$0")" && pwd)"

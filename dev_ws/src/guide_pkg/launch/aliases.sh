@@ -15,7 +15,7 @@ alias c4="$BIN/joystick_ctrl"           # 摇杆/键盘
 alias c5="c1 & c2 & wait"              # 一键导航+融合
 
 # ── 视觉节点（Python 脚本）──
-alias v1="python3 $VIS/face/face_recognizer.py"         # 人脸识别
+alias v1="FACE_ROOM_MAP=~/yahboomcar_ros2_ws/yahboomcar_ws/src/guide_pkg/config/face_room_map.yaml python3 $VIS/face/face_recognizer.py"         # 人脸识别
 alias v2="python3 $VIS/doorplate/doorplate_detector.py" # 门牌识别
 alias v3="python3 $VIS/voice/voice_player.py"           # 语音模块
 alias va="v1 & v2 & v3 & wait"                         # 一键视觉
