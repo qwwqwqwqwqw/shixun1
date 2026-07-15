@@ -3,8 +3,6 @@ const app = getApp();
 
 Page({
   data: {
-    rooms: ['501', '502', '503', '504', '505'],
-    selectedRoom: '',
     customRoom: '',
     connected: false,
     manualActive: '',
@@ -30,15 +28,9 @@ Page({
     }
   },
 
-  selectRoom(e) {
-    const room = e.currentTarget.dataset.room;
-    this.setData({ selectedRoom: room, customRoom: '' });
-    app.globalData.currentRoom = room;
-  },
-
   inputRoom(e) {
     const room = e.detail.value.replace(/\s/g, '').slice(0, 32);
-    this.setData({ customRoom: room, selectedRoom: '' });
+    this.setData({ customRoom: room });
     app.globalData.currentRoom = room;
   },
 
@@ -48,9 +40,13 @@ Page({
   },
 
   startNavigate() {
-    const room = (this.data.customRoom || this.data.selectedRoom).trim();
+    const room = this.data.customRoom.trim();
     if (!room) {
-      wx.showToast({ title: '请选择或输入教室号', icon: 'none' });
+      wx.showToast({ title: '请输入教室号', icon: 'none' });
+      return;
+    }
+    if (!this.data.connected) {
+      wx.showToast({ title: '请先连接小车', icon: 'none' });
       return;
     }
     app.sendCommand(room);

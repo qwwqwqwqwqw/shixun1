@@ -1,30 +1,54 @@
-<view class="container">
-  <view class="header">
-    <text class="title">iCar 智能教室导航</text>
+<view class="container home-page">
+  <view class="hero">
+    <view class="hero-copy">
+      <text class="eyebrow">iCar · 智能移动平台</text>
+      <text class="hero-title">楼道教室导航</text>
+      <text class="hero-subtitle">输入目的地，让小车带你前往</text>
+    </view>
     <view class="connection {{connected ? 'online' : 'offline'}}"
           bindtap="reconnect">
       <view class="connection-dot"></view>
-      <text>{{connected ? '小车已连接' : '未连接，点击重试'}}</text>
+      <text>{{connected ? '小车在线' : '点击重新连接'}}</text>
     </view>
   </view>
 
-  <view class="section-title">请选择教室</view>
-  <view class="room-list">
-    <view wx:for="{{rooms}}" wx:key="*this"
-          class="room-item {{item == selectedRoom ? 'active' : ''}}"
-          bindtap="selectRoom" data-room="{{item}}">
-      {{item}}
+  <view class="navigation-card">
+    <view class="card-heading">
+      <view>
+        <text class="card-title">设置目的地</text>
+        <text class="card-subtitle">请输入地图中已标注的教室编号</text>
+      </view>
+      <view class="step-badge">01</view>
+    </view>
+
+    <view class="input-shell">
+      <text class="input-prefix">教室</text>
+      <input class="room-input"
+             value="{{customRoom}}"
+             maxlength="32"
+             placeholder="例如 501"
+             placeholder-class="input-placeholder"
+             confirm-type="go"
+             bindconfirm="startNavigate"
+             bindinput="inputRoom" />
+    </view>
+
+    <button class="navigate-button"
+            hover-class="navigate-button-hover"
+            bindtap="startNavigate">
+      <text>开始导航</text>
+      <text class="button-arrow">→</text>
+    </button>
+
+    <view class="face-entry" bindtap="startFaceRecognition">
+      <view class="face-symbol">◎</view>
+      <view class="face-copy">
+        <text class="face-title">人脸识别导航</text>
+        <text class="face-subtitle">识别用户后自动匹配目标教室</text>
+      </view>
+      <text class="face-arrow">›</text>
     </view>
   </view>
-
-  <view class="section-title">或输入其他教室号</view>
-  <input class="room-input"
-         value="{{customRoom}}"
-         maxlength="32"
-         placeholder="例如：201"
-         bindinput="inputRoom" />
-
-  <button class="btn-primary" bindtap="startNavigate">开始导航</button>
 
   <view class="manual-card">
     <view class="manual-header">
@@ -96,8 +120,8 @@
     <text class="manual-tip">按住方向键持续运动，松开后自动停车</text>
   </view>
 
-  <view class="divider">或</view>
-  <button class="btn-face" bindtap="startFaceRecognition">
-    人脸识别导航
-  </button>
+  <view class="safe-note">
+    <view class="safe-dot"></view>
+    <text>使用前请确认小车周围环境安全</text>
+  </view>
 </view>
