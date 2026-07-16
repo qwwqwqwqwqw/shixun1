@@ -1,14 +1,4 @@
-"""门牌号识别节点 — EasyOCR 预训练模型 / YOLO 自训练模型（方案可切换）。
-
-摄像头：OpenCV 直读（不依赖 ROS2 相机驱动）。
-
-检测流程（YOLO 方案）:
-    摄像头帧 → YOLO 检测 → classboard? → 裁剪 ROI(+10px) → Otsu 增强 → EasyOCR 数字 → /doorplate_result
-
-方案切换：改 DETECTOR 变量
-  - 'easyocr': 占位方案，开箱即用
-  - 'yolo':    正式方案，YOLO 检测门牌区域 + Otsu 增强 + EasyOCR 读数字
-"""
+"""门牌号识别节点 — 休眠-唤醒模式（默认不占摄像头，收到 arrived 后激活 5 秒）"""
 import time
 import re
 import rclpy
@@ -17,13 +7,16 @@ from std_msgs.msg import String
 import cv2
 import numpy as np
 import torch
+import pathlib
+import platform
+import json
 
 DETECTOR = 'yolo'
 YOLO_MODEL = 'doorplate_best.pt'
 YOLO_CONF = 0.3
-# classboard 和 electronic_board 做 OCR，classboard 优先
 TARGET_OCR_CLASSES = {'classboard', 'electronic_board'}
 DOORPLATE_CLASSES = {'classboard', 'electronic_board'}
+ACTIVE_DURATION = 20  # 唤醒后持续识别秒数
 
 
 # ── EasyOCR ──
@@ -33,7 +26,7 @@ class EasyOcrDetector:
             import easyocr as _ec
         except ImportError:
             raise RuntimeError('easyocr 未安装: pip3 install easyocr')
-        self.reader = _ec.Reader(['en'], gpu=False)  # type: ignore
+        self.reader = _ec.Reader(['en'], gpu=False)
 
     def detect(self, gray):
         results = self.reader.readtext(gray)
@@ -48,22 +41,23 @@ class EasyOcrDetector:
         return None
 
 
+if platform.system() == 'Linux':
+    pathlib.WindowsPath = pathlib.PosixPath
+
+
 # ── YOLO + Otsu 增强 + EasyOCR ──
 class YoloDetector:
-    """YOLO 检测门牌区域 → Otsu 增强 → EasyOCR 读数字。
-
-    流程: YOLO → classboard? → 裁剪(+10px) → Otsu 增强 → 纯数字OCR
-    """
-
-    PAD = 10                    # ROI 外扩像素
-    OCR_ALLOW = '0123456789'    # 只识别数字
+    PAD = 10
+    OCR_ALLOW = '0123456789'
 
     def __init__(self):
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-        self.model = torch.hub.load('/home/jetson/yolov5', 'custom',
-                                     path=YOLO_MODEL, force_reload=False,
-                                     autoshape=False, verbose=False,
-                                     source='local')
+        self.model = torch.hub.load(
+            '/root/yahboomcar_ros2_ws/yahboomcar_ws/vision/doorplate/yolov5',
+            'custom',
+            path='/root/yahboomcar_ros2_ws/yahboomcar_ws/vision/doorplate/best.pt',
+            source='local',
+            force_reload=True)
         self.model = self.model.to(self.device).eval()
         self.stride = max(int(self.model.stride), 32)
         self.names = self.model.names
@@ -71,7 +65,6 @@ class YoloDetector:
         import easyocr
         self.ocr = easyocr.Reader(['en'], gpu=False)
 
-    # ── 裁剪 ROI ──
     def _crop_roi(self, frame, bbox):
         h, w = frame.shape[:2]
         x1, y1, x2, y2 = bbox
@@ -83,9 +76,7 @@ class YoloDetector:
             return None
         return frame[y1:y2, x1:x2]
 
-    # ── Otsu 增强 ──
     def _enhance_otsu(self, roi):
-        """灰度 → CLAHE → Otsu → 开闭去噪 → 反转 → 放大。"""
         gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         enhanced = clahe.apply(gray)
@@ -93,11 +84,8 @@ class YoloDetector:
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
         binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
         binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-        # 确保文字=黑(0)、背景=白(255)
-        # 如果黑色像素占多数，说明文字是白色 → 反转
         if np.sum(binary < 127) > binary.size / 2:
             binary = cv2.bitwise_not(binary)
-        # 小图放大到 600px
         h, w = binary.shape[:2]
         if min(h, w) < 400:
             scale = 600.0 / min(h, w)
@@ -105,15 +93,12 @@ class YoloDetector:
                                 interpolation=cv2.INTER_CUBIC)
         return binary
 
-    # ── OCR 数字识别 ──
     def _recognize(self, processed_roi):
-        import re
         if len(processed_roi.shape) == 2:
             processed_roi = cv2.cvtColor(processed_roi, cv2.COLOR_GRAY2BGR)
         results = self.ocr.readtext(processed_roi, min_size=3)
         if not results:
             return None
-        # OCR 混淆校正：原始文本必须含数字（排除纯字母噪音）
         fix = str.maketrans({'O': '0', 'I': '1', 'L': '1', 'S': '5',
                               'Z': '2', 'B': '8', 'T': '7', 'A': '4'})
         for (_b, text, conf) in sorted(results, key=lambda r: -r[2]):
@@ -126,9 +111,7 @@ class YoloDetector:
                 return (t, conf)
         return None
 
-    # ── 预处理 ──
     def _preprocess(self, frame):
-        """letterbox + 归一化，与训练时一致。"""
         h0, w0 = frame.shape[:2]
         r = self.img_size / max(h0, w0)
         if r != 1:
@@ -139,11 +122,10 @@ class YoloDetector:
         dw, dh = dw // 2, dh // 2
         frame = cv2.copyMakeBorder(frame, dh, dh, dw, dw,
                                     cv2.BORDER_CONSTANT, value=(114, 114, 114))
-        frame = frame[:, :, ::-1].transpose(2, 0, 1)  # BGR→RGB, HWC→CHW
+        frame = frame[:, :, ::-1].transpose(2, 0, 1)
         frame = np.ascontiguousarray(frame, dtype=np.float32) / 255.0
         return torch.from_numpy(frame).unsqueeze(0).to(self.device), (h0, w0)
 
-    # ── 坐标还原 ──
     def _scale_boxes(self, pred, h0, w0):
         gain = min(self.img_size / h0, self.img_size / w0)
         pad_w = (self.img_size - w0 * gain) / 2
@@ -152,7 +134,6 @@ class YoloDetector:
         pred[:, [1, 3]] -= pad_h
         pred[:, :4] /= gain
 
-    # ── NMS ──
     def _nms(self, pred):
         from torchvision.ops import nms
         keep = []
@@ -165,9 +146,7 @@ class YoloDetector:
             keep.append(p[idx])
         return torch.cat(keep, dim=0) if keep else pred[:0]
 
-    # ── 主入口 ──
     def detect(self, frame):
-        """YOLO → classboard 路由 → 裁剪 → Otsu → OCR。"""
         tensor, (h0, w0) = self._preprocess(frame)
         with torch.no_grad():
             pred = self.model(tensor)[0]
@@ -201,43 +180,98 @@ class YoloDetector:
 
         if not candidates:
             return None
-        # classboard 优先 → electronic_board 退取
         candidates.sort(key=lambda x: (0 if x[0] == 'classboard' else 1, -x[2]))
         return (candidates[0][1], candidates[0][2])
 
 
-# ── ROS2 节点 ──
+# ── ROS2 节点（休眠-唤醒模式） ──
 class DoorplateDetector(Node):
     def __init__(self):
         super().__init__('doorplate_detector')
-        self.get_logger().info(f'[方案] {DETECTOR}')
+        self.get_logger().info(f'[方案] {DETECTOR} (休眠-唤醒模式)')
 
         self.detector = (EasyOcrDetector() if DETECTOR == 'easyocr'
                          else YoloDetector())
 
         self.pub_result = self.create_publisher(String, '/doorplate_result', 10)
 
+        # ── 休眠-唤醒控制 ──
+        self.active = False
         self.cap = None
-        for idx in [2, 4, 6, 0]:
-            cap = cv2.VideoCapture(idx)
-            if cap.isOpened():
-                ret, _ = cap.read()
-                if ret:
-                    self.cap = cap
-                    self.get_logger().info(f'摄像头 /dev/video{idx} 已就绪')
-                    break
-                cap.release()
-        assert self.cap is not None, '摄像头不可用 — 请检查 /dev/video*'
-
         self.process_interval = 1.0
         self.last_process = 0.0
         self.last_result = ''
+        self.activation_time = 0.0  # 激活时间戳
 
+        # ── 订阅导航状态（唤醒信号） ──
+        self.nav_sub = self.create_subscription(
+            String, '/navigation_status', self.nav_callback, 10
+        )
+
+        # ── 定时处理帧（默认休眠，active=False 时直接跳过） ──
         self.timer = self.create_timer(0.3, self._process_frame)
-        self.get_logger().info('doorplate_detector 已启动')
+        self.get_logger().info('doorplate_detector 已启动 (休眠中，等待导航到达)')
+
+    def nav_callback(self, msg: String):
+        """接收导航状态，到达时唤醒门牌识别。"""
+        try:
+            data = json.loads(msg.data)
+            if data.get('status') == 'arrived':
+                self.activate()
+        except json.JSONDecodeError:
+            self.get_logger().warn('无效的 navigation_status JSON')
+
+    def activate(self):
+        """唤醒：打开摄像头，开始识别。"""
+        if self.active:
+            return
+
+        # 打开摄像头
+        if self.cap is None:
+            for idx in [2, 4, 6, 0]:
+                cap = cv2.VideoCapture(idx)
+                if cap.isOpened():
+                    ret, _ = cap.read()
+                    if ret:
+                        self.cap = cap
+                        self.get_logger().info(f'摄像头 /dev/video{idx} 已打开')
+                        break
+                    cap.release()
+            if self.cap is None:
+                self.get_logger().error('摄像头不可用，无法唤醒')
+                return
+
+        self.active = True
+        self.activation_time = time.time()
+        self.get_logger().info(f'门牌识别已唤醒（持续 {ACTIVE_DURATION:.1f}s）')
+
+    def deactivate(self):
+        """休眠：释放摄像头，停止识别。"""
+        if not self.active:
+            return
+        self.active = False
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+        self.get_logger().info('门牌识别已休眠（摄像头已释放）')
 
     def _process_frame(self):
-        assert self.cap is not None
+        """定时处理：仅在激活状态下读取帧并推理。"""
+        if not self.active:
+            # 休眠状态：不做任何事
+            return
+
+        # 检查是否超时
+        if time.time() - self.activation_time > ACTIVE_DURATION:
+            self.deactivate()
+            return
+
+        if self.cap is None or not self.cap.isOpened():
+            self.get_logger().warn('摄像头丢失，重新打开...')
+            self.cap = None
+            self.activate()
+            return
+
         now = time.time()
         if now - self.last_process < self.process_interval:
             return
@@ -245,6 +279,7 @@ class DoorplateDetector(Node):
 
         ret, frame = self.cap.read()
         if not ret:
+            self.get_logger().warn('读取帧失败')
             return
 
         if DETECTOR == 'easyocr':
@@ -252,6 +287,7 @@ class DoorplateDetector(Node):
             result = self.detector.detect(gray)
         else:
             result = self.detector.detect(frame)
+
         if result is None:
             return
         text, conf = result

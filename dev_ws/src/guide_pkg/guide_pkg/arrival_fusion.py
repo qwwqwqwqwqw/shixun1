@@ -23,7 +23,7 @@ from std_msgs.msg import String, Bool
 
 
 # 门牌识别等待超时（秒）
-DOORPLATE_TIMEOUT = 10.0
+DOORPLATE_TIMEOUT = 50.0
 
 
 class ArrivalFusion(Node):
